@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 32" fill="none">
+  <g>
+    <path d="M4 6l8 8-8 8" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="22" y="22" font-family="Inter, sans-serif" font-size="18" font-weight="600" fill="#000" letter-spacing="0.5">salus</text>
+</svg>
