@@ -17,6 +17,7 @@ import { DropZone } from "../components/DropZone";
 import { ExtractedField } from "../components/ExtractedField";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toaster";
+import { PageHeader } from "../components/PageHeader";
 
 // Persistence note: the FastAPI backend currently exposes /api/counterparties
 // (JSON) but no endpoint for attaching the contract PDF or upserting fee
@@ -297,23 +298,14 @@ export function NewCounterpartyPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <header className="mb-8">
-        <Link
-          to="/counterparties"
-          className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
-        >
-          ← Counterparties
-        </Link>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-ink">
-          New counterparty
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Drop a signed contract PDF and Salus will pre-fill the form for you.
-          Review every value before saving.
-        </p>
-      </header>
+    <>
+      <PageHeader
+        title="New counterparty"
+        subtitle="Drop a signed contract PDF and Salus will pre-fill the form for you. Review every value before saving."
+        backTo={{ to: "/counterparties", label: "Back to Counterparties" }}
+      />
 
+      <div className="px-10 py-8 max-w-3xl">
       <form onSubmit={handleSubmit} className="space-y-8" noValidate>
         {/* PDF block */}
         <section className="bg-white border border-card-border rounded-lg p-6">
@@ -816,7 +808,8 @@ export function NewCounterpartyPage() {
           </Button>
         </div>
       </form>
-    </div>
+      </div>
+    </>
   );
 }
 
