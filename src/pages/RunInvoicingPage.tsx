@@ -17,6 +17,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { DropZone } from "../components/DropZone";
 import { InvoiceDraftCard } from "../components/InvoiceDraftCard";
 import { useToast } from "../components/ui/Toaster";
+import { PageHeader } from "../components/PageHeader";
 import { cn } from "../lib/cn";
 
 type Stage = "setup" | "review" | "pushing" | "done";
@@ -194,18 +195,26 @@ export function RunInvoicingPage() {
     return { tx, ins, sub, total: tx + ins + sub };
   }, [drafts]);
 
-  return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">
-          Run invoicing
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Parse a Nexus export, review proposed invoices per counterparty, push
-          to Xero.
-        </p>
-      </header>
+  const stageTab: "upload" | "review" | "confirm" =
+    stage === "setup"
+      ? "upload"
+      : stage === "done"
+        ? "confirm"
+        : "review";
 
+  return (
+    <>
+      <PageHeader
+        title="Run invoicing"
+        subtitle="Parse a Nexus export, review proposed invoices per counterparty, push to Xero."
+        tabs={[
+          { label: "Upload", active: stageTab === "upload" },
+          { label: "Review", active: stageTab === "review" },
+          { label: "Confirm", active: stageTab === "confirm" },
+        ]}
+      />
+
+      <div className="px-10 py-8 space-y-8">
       {xeroPending && (
         <div className="bg-white border border-card-border rounded-lg px-5 py-4 flex items-start gap-3">
           <Info className="h-5 w-5 text-ink-muted shrink-0 mt-0.5" strokeWidth={1.75} />
@@ -285,7 +294,8 @@ export function RunInvoicingPage() {
           onReset={reset}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
