@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Building2, FileSpreadsheet, LogOut } from "lucide-react";
+import { Bell, Building2, FileSpreadsheet, LogOut } from "lucide-react";
 import { SalusLogo } from "./SalusLogo";
 import { useAuth } from "../lib/auth";
 import { cn } from "../lib/cn";
@@ -19,12 +19,22 @@ export function Sidebar() {
   const { user, logout } = useAuth();
 
   return (
-    <aside className="w-64 shrink-0 bg-white border-r border-card-border flex flex-col">
-      <div className="px-5 pt-7 pb-5">
-        <SalusLogo />
+    <aside className="w-60 shrink-0 bg-white border-r border-card-border flex flex-col">
+      <div className="px-5 pt-5 pb-4 flex items-center justify-between">
+        <SalusLogo height={22} />
+        <button
+          type="button"
+          aria-label="Notifications"
+          className="text-ink-muted hover:text-ink transition-colors p-1 -mr-1"
+        >
+          <Bell className="h-4 w-4" strokeWidth={1.75} />
+        </button>
       </div>
 
-      <nav className="flex-1 px-3 py-2">
+      <nav className="flex-1 px-3 py-4">
+        <p className="px-3 mb-1.5 text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+          Workflow
+        </p>
         <ul className="space-y-0.5">
           {NAV.map((item) => {
             const Icon = item.icon;
@@ -34,10 +44,10 @@ export function Sidebar() {
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      "group flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors duration-150",
+                      "group flex items-center gap-2.5 px-3 h-9 rounded-md text-sm transition-colors duration-150",
                       isActive
-                        ? "bg-mint-dim text-mint-deep font-medium"
-                        : "text-ink-dim hover:text-ink hover:bg-page"
+                        ? "bg-neutral-bg text-ink font-medium"
+                        : "text-ink-muted hover:text-ink hover:bg-page"
                     )
                   }
                 >
@@ -46,8 +56,9 @@ export function Sidebar() {
                       <Icon
                         className={cn(
                           "h-4 w-4 shrink-0",
-                          isActive ? "text-mint-deep" : "text-ink-muted group-hover:text-ink-dim"
+                          isActive ? "text-ink" : "text-ink-muted group-hover:text-ink"
                         )}
+                        strokeWidth={1.75}
                       />
                       <span>{item.label}</span>
                     </>
@@ -59,7 +70,7 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="border-t border-card-border px-5 py-5">
+      <div className="border-t border-card-border px-5 py-4">
         <div className="text-sm font-medium text-ink truncate">
           {user?.display_name ?? user?.username ?? "Signed in"}
         </div>
