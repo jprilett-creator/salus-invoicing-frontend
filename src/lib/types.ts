@@ -124,6 +124,18 @@ export interface CounterpartyCreate {
 }
 
 export interface ContractExtractedFields {
+  identity: {
+    legal_name: string | null;
+    short_name: string | null;
+    jurisdiction: string | null;
+    company_number: string | null;
+    registered_address: string | null;
+    billing_email: string | null;
+    roles: string[] | null;
+    currency: string | null;
+    primary_contact_name: string | null;
+    primary_contact_role: string | null;
+  };
   contract: {
     title: string | null;
     effective_date: string | null;
@@ -133,6 +145,13 @@ export interface ContractExtractedFields {
     signed_by_us: string | null;
     signed_by_them: string | null;
     signed_date: string | null;
+  };
+  fee_schedule: {
+    subscription_monthly: number | null;
+    subscription_billing_cadence: string | null;
+    subscription_start_date: string | null;
+    transaction_rate_pct: number | null;
+    insurance_rate_pct: number | null;
   };
   extraction_confidence: "high" | "medium" | "low" | null;
   extraction_notes: string | null;

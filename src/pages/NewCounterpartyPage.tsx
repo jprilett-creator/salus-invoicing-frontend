@@ -189,8 +189,57 @@ export function NewCounterpartyPage() {
   };
 
   const applyExtraction = (fields: ContractExtractedFields) => {
-    const c = fields.contract;
     const newKeys = new Set<string>();
+
+    const id = fields.identity;
+    if (id) {
+      setIdentity((prev) => {
+        const next = { ...prev };
+        if (id.legal_name) {
+          next.name = id.legal_name;
+          newKeys.add("identity.name");
+        }
+        if (id.short_name) {
+          next.short_name = id.short_name;
+          newKeys.add("identity.short_name");
+        }
+        if (id.jurisdiction) {
+          next.jurisdiction = id.jurisdiction;
+          newKeys.add("identity.jurisdiction");
+        }
+        if (id.company_number) {
+          next.company_number = id.company_number;
+          newKeys.add("identity.company_number");
+        }
+        if (id.registered_address) {
+          next.registered_address = id.registered_address;
+          newKeys.add("identity.registered_address");
+        }
+        if (id.billing_email) {
+          next.billing_email = id.billing_email;
+          newKeys.add("identity.billing_email");
+        }
+        if (id.currency) {
+          next.currency = id.currency;
+          newKeys.add("identity.currency");
+        }
+        if (id.primary_contact_name) {
+          next.primary_contact_name = id.primary_contact_name;
+          newKeys.add("identity.primary_contact_name");
+        }
+        if (id.primary_contact_role) {
+          next.primary_contact_role = id.primary_contact_role;
+          newKeys.add("identity.primary_contact_role");
+        }
+        if (id.roles && id.roles.length > 0) {
+          next.roles = id.roles;
+          newKeys.add("identity.roles");
+        }
+        return next;
+      });
+    }
+
+    const c = fields.contract;
     setContract((prev) => {
       const next = { ...prev };
       if (c.title) {
@@ -227,6 +276,42 @@ export function NewCounterpartyPage() {
       }
       return next;
     });
+
+    const fs = fields.fee_schedule;
+    if (fs) {
+      setFees((prev) => {
+        const next = { ...prev };
+        if (fs.transaction_rate_pct !== null && fs.transaction_rate_pct !== undefined) {
+          next.transaction_pct = String(fs.transaction_rate_pct);
+          newKeys.add("fees.transaction_pct");
+        }
+        if (fs.insurance_rate_pct !== null && fs.insurance_rate_pct !== undefined) {
+          next.insurance_pct = String(fs.insurance_rate_pct);
+          newKeys.add("fees.insurance_pct");
+        }
+        if (fs.subscription_monthly !== null && fs.subscription_monthly !== undefined) {
+          next.subscription_usd = String(fs.subscription_monthly);
+          newKeys.add("fees.subscription_usd");
+        }
+        if (fs.subscription_start_date) {
+          next.subscription_start = fs.subscription_start_date;
+          newKeys.add("fees.subscription_start");
+        }
+        return next;
+      });
+      setShowFee((prev) => ({
+        transaction_pct:
+          prev.transaction_pct ||
+          (fs.transaction_rate_pct !== null && fs.transaction_rate_pct !== undefined),
+        insurance_pct:
+          prev.insurance_pct ||
+          (fs.insurance_rate_pct !== null && fs.insurance_rate_pct !== undefined),
+        subscription_usd:
+          prev.subscription_usd ||
+          (fs.subscription_monthly !== null && fs.subscription_monthly !== undefined),
+      }));
+    }
+
     setExtractedKeys((prev) => {
       const merged = new Set(prev);
       for (const k of newKeys) merged.add(k);
@@ -294,7 +379,10 @@ export function NewCounterpartyPage() {
     setExtractStage("idle");
     setExtractError(null);
     setExtractedKeys(new Set());
+    setIdentity(EMPTY_IDENTITY);
     setContract(EMPTY_CONTRACT);
+    setFees(EMPTY_FEES);
+    setShowFee({ transaction_pct: false, insurance_pct: false, subscription_usd: false });
   };
 
   return (
@@ -431,8 +519,11 @@ export function NewCounterpartyPage() {
                 <option value="individual">Individual</option>
               </Select>
             </div>
-            <div>
-              <Label htmlFor="f-jurisdiction">Jurisdiction</Label>
+            <ExtractedField
+              label="Jurisdiction"
+              showIndicator={isExtracted("identity.jurisdiction")}
+              htmlFor="f-jurisdiction"
+            >
               <Input
                 id="f-jurisdiction"
                 value={identity.jurisdiction}
@@ -440,10 +531,13 @@ export function NewCounterpartyPage() {
                   setIdentityField("jurisdiction", e.target.value)
                 }
               />
-            </div>
+            </ExtractedField>
 
-            <div>
-              <Label htmlFor="f-company">Company number</Label>
+            <ExtractedField
+              label="Company number"
+              showIndicator={isExtracted("identity.company_number")}
+              htmlFor="f-company"
+            >
               <Input
                 id="f-company"
                 value={identity.company_number}
@@ -451,9 +545,12 @@ export function NewCounterpartyPage() {
                   setIdentityField("company_number", e.target.value)
                 }
               />
-            </div>
-            <div>
-              <Label htmlFor="f-currency">Invoicing currency</Label>
+            </ExtractedField>
+            <ExtractedField
+              label="Invoicing currency"
+              showIndicator={isExtracted("identity.currency")}
+              htmlFor="f-currency"
+            >
               <Select
                 id="f-currency"
                 value={identity.currency}
@@ -465,10 +562,14 @@ export function NewCounterpartyPage() {
                   </option>
                 ))}
               </Select>
-            </div>
+            </ExtractedField>
 
-            <div className="md:col-span-2">
-              <Label htmlFor="f-reg-addr">Registered address</Label>
+            <ExtractedField
+              label="Registered address"
+              showIndicator={isExtracted("identity.registered_address")}
+              htmlFor="f-reg-addr"
+              className="md:col-span-2"
+            >
               <Textarea
                 id="f-reg-addr"
                 value={identity.registered_address}
@@ -476,10 +577,13 @@ export function NewCounterpartyPage() {
                   setIdentityField("registered_address", e.target.value)
                 }
               />
-            </div>
+            </ExtractedField>
 
-            <div>
-              <Label htmlFor="f-bill-email">Billing email</Label>
+            <ExtractedField
+              label="Billing email"
+              showIndicator={isExtracted("identity.billing_email")}
+              htmlFor="f-bill-email"
+            >
               <Input
                 id="f-bill-email"
                 type="email"
@@ -488,9 +592,11 @@ export function NewCounterpartyPage() {
                   setIdentityField("billing_email", e.target.value)
                 }
               />
-            </div>
-            <div>
-              <Label>Roles</Label>
+            </ExtractedField>
+            <ExtractedField
+              label="Roles"
+              showIndicator={isExtracted("identity.roles")}
+            >
               <div className="flex items-center gap-5 pt-1.5">
                 <Checkbox
                   id="role-supplier"
@@ -515,10 +621,13 @@ export function NewCounterpartyPage() {
                   label="Funder"
                 />
               </div>
-            </div>
+            </ExtractedField>
 
-            <div>
-              <Label htmlFor="f-pc-name">Primary contact name</Label>
+            <ExtractedField
+              label="Primary contact name"
+              showIndicator={isExtracted("identity.primary_contact_name")}
+              htmlFor="f-pc-name"
+            >
               <Input
                 id="f-pc-name"
                 value={identity.primary_contact_name}
@@ -526,9 +635,12 @@ export function NewCounterpartyPage() {
                   setIdentityField("primary_contact_name", e.target.value)
                 }
               />
-            </div>
-            <div>
-              <Label htmlFor="f-pc-role">Primary contact role</Label>
+            </ExtractedField>
+            <ExtractedField
+              label="Primary contact role"
+              showIndicator={isExtracted("identity.primary_contact_role")}
+              htmlFor="f-pc-role"
+            >
               <Input
                 id="f-pc-role"
                 value={identity.primary_contact_role}
@@ -536,7 +648,7 @@ export function NewCounterpartyPage() {
                   setIdentityField("primary_contact_role", e.target.value)
                 }
               />
-            </div>
+            </ExtractedField>
             <div>
               <Label htmlFor="f-pc-email">Primary contact email</Label>
               <Input
