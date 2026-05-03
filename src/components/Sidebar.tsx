@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Bell, Building2, FileSpreadsheet, LogOut } from "lucide-react";
+import { Bell, Building2, FileSpreadsheet, LogOut, Repeat } from "lucide-react";
 import { SalusLogo } from "./SalusLogo";
 import { useAuth } from "../lib/auth";
 import { cn } from "../lib/cn";
@@ -12,6 +12,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/counterparties", label: "Counterparties", icon: Building2 },
+  { to: "/subscriptions", label: "Subscriptions", icon: Repeat },
   { to: "/run-invoicing", label: "Run invoicing", icon: FileSpreadsheet },
 ];
 

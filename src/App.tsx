@@ -4,8 +4,9 @@ import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { CounterpartiesPage } from "./pages/CounterpartiesPage";
 import { NewCounterpartyPage } from "./pages/NewCounterpartyPage";
-import { CounterpartyDetailPlaceholder } from "./pages/CounterpartyDetailPlaceholder";
+import { CounterpartyDetailPage } from "./pages/CounterpartyDetailPage";
 import { RunInvoicingPage } from "./pages/RunInvoicingPage";
+import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 
 export default function App() {
   return (
@@ -23,8 +24,9 @@ export default function App() {
         <Route path="/counterparties/new" element={<NewCounterpartyPage />} />
         <Route
           path="/counterparties/:id"
-          element={<CounterpartyDetailPlaceholder />}
+          element={<CounterpartyDetailPage />}
         />
+        <Route path="/subscriptions" element={<SubscriptionsPage />} />
         <Route path="/run-invoicing" element={<RunInvoicingPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

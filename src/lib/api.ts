@@ -1,15 +1,22 @@
 import type {
+  AuditEntry,
   Batch,
   ContractExtractResponse,
   CounterpartyCreate,
   CounterpartyDetail,
   CounterpartySummary,
+  DashboardResponse,
+  GenerateAllDueResponse,
+  GenerateDraftResult,
   HealthResponse,
   InvoiceDraft,
+  KycAttestation,
+  KycChecks,
   LedgerEntry,
   LoginResponse,
   ParseResponse,
   PushResponse,
+  SubscriptionPeriod,
 } from "./types";
 
 const API_BASE_URL =
@@ -189,4 +196,60 @@ export const api = {
 
   ledgerRecent: (limit = 50) =>
     request<LedgerEntry[]>("/api/ledger/recent", { query: { limit } }),
+
+  dashboard: () => request<DashboardResponse>("/api/dashboard"),
+
+  subscriptionsDue: () =>
+    request<SubscriptionPeriod[]>("/api/subscriptions/due"),
+
+  generateSubscriptionDraft: (counterparty_id: number, period_start: string) =>
+    request<GenerateDraftResult>("/api/subscriptions/generate-draft", {
+      method: "POST",
+      body: { counterparty_id, period_start },
+    }),
+
+  generateAllDueSubscriptions: (
+    items: { counterparty_id: number; period_start: string }[]
+  ) =>
+    request<GenerateAllDueResponse>("/api/subscriptions/generate-all-due", {
+      method: "POST",
+      body: { subscription_ids: items },
+    }),
+
+  patchCounterparty: (id: number, body: Partial<CounterpartyCreate>) =>
+    request<CounterpartyDetail>(`/api/counterparties/${id}`, {
+      method: "PATCH",
+      body,
+    }),
+
+  archiveCounterparty: (id: number) => {
+    // Returns either {ok:true} on success or {error, blocking_invoice_ids} on 409.
+    return request<{ ok?: boolean; error?: string; blocking_invoice_ids?: string[] }>(
+      `/api/counterparties/${id}`,
+      { method: "DELETE" }
+    );
+  },
+
+  restoreCounterparty: (id: number) =>
+    request<CounterpartyDetail>(`/api/counterparties/${id}/restore`, {
+      method: "POST",
+      body: {},
+    }),
+
+  getCounterpartyAudit: (id: number) =>
+    request<AuditEntry[]>(`/api/counterparties/${id}/audit`),
+
+  getKyc: (id: number) =>
+    request<KycAttestation>(`/api/counterparties/${id}/kyc`),
+
+  attestKyc: (id: number, checks: KycChecks, notes: string | null) =>
+    request<KycAttestation>(`/api/counterparties/${id}/kyc/attest`, {
+      method: "POST",
+      body: { checks, notes },
+    }),
+
+  listCounterpartiesArchived: () =>
+    request<CounterpartySummary[]>("/api/counterparties", {
+      query: { include_archived: "true" },
+    }),
 };

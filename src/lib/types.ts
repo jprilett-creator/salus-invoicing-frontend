@@ -16,6 +16,8 @@ export type CounterpartyStatus =
   | "active"
   | "suspended";
 
+export type KycStatus = "attested" | "expiring" | "expired" | "never";
+
 export interface CounterpartySummary {
   id: number;
   short_name: string;
@@ -24,6 +26,10 @@ export interface CounterpartySummary {
   roles: string[];
   currency: string;
   created_at: string | null;
+  archived_at: string | null;
+  kyc_status: KycStatus;
+  last_invoiced_at: string | null;
+  last_invoiced_amount: number | null;
 }
 
 export interface Contract {
@@ -72,6 +78,83 @@ export interface BeneficialOwner {
   notes: string | null;
 }
 
+export interface KycChecks {
+  identity: boolean;
+  ubo: boolean;
+  sanctions: boolean;
+  pep: boolean;
+  adverse_media: boolean;
+  source_of_funds: boolean;
+}
+
+export interface KycAttestation {
+  counterparty_id: number;
+  status: KycStatus;
+  attested_at: string | null;
+  attested_by_email: string | null;
+  checks: KycChecks | null;
+  notes: string | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  counterparty_id: number;
+  change_type: string;
+  changed_by_email: string | null;
+  changed_at: string;
+  field_changes: Record<string, { old: unknown; new: unknown }>;
+}
+
+export interface DashboardResponse {
+  gmv_this_month: { amount_usd: number; delta_pct_vs_last_month: number; batch_count: number };
+  invoiced_this_month: { amount_usd: number; invoice_count: number };
+  outstanding_to_invoice: { amount_usd: number; item_count: number };
+  subscriptions_due_this_month: { amount_usd: number; subscription_count: number };
+  gmv_last_six_months: { month: string; amount_usd: number }[];
+  counterparties_summary: { total: number; by_role: Record<string, number> };
+  monthly_run_status: {
+    subscriptions_due_count: number;
+    subscriptions_due_total_usd: number;
+    transaction_fees_pending_for_prior_month: boolean;
+  };
+}
+
+export type SubscriptionPeriodStatus =
+  | "due"
+  | "draft_created"
+  | "pushed_to_xero"
+  | "paid";
+
+export interface SubscriptionPeriod {
+  counterparty_id: number;
+  counterparty_short_name: string;
+  counterparty_legal_name: string;
+  period_start: string;
+  period_end: string;
+  period_label: string;
+  amount_usd: number;
+  due_date: string;
+  status: SubscriptionPeriodStatus;
+  draft_invoice_id: string | null;
+  xero_invoice_id: string | null;
+}
+
+export interface GenerateDraftResult {
+  counterparty_id: number;
+  period_start: string;
+  status: "draft_created" | "pushed_to_xero" | "skipped" | "failed";
+  invoice_number: string;
+  amount_usd: number;
+  xero_invoice_id: string | null;
+  line_item_description: string;
+  detail: string | null;
+}
+
+export interface GenerateAllDueResponse {
+  results: GenerateDraftResult[];
+  xero_configured: boolean;
+}
+
 export interface CounterpartyDetail {
   id: number;
   name: string;
@@ -99,6 +182,10 @@ export interface CounterpartyDetail {
   fee_schedules: FeeSchedule[];
   kyc: KycItem[];
   beneficial_owners: BeneficialOwner[];
+  archived_at: string | null;
+  archived_by_email: string | null;
+  kyc_status: KycStatus;
+  kyc_attestation: KycAttestation | null;
 }
 
 export interface CounterpartyCreate {
@@ -121,6 +208,13 @@ export interface CounterpartyCreate {
   xero_contact_id?: string | null;
   auto_send_invoices?: boolean;
   notes?: string | null;
+}
+
+export type CounterpartyPatch = Partial<CounterpartyCreate>;
+
+export interface ArchiveBlocked {
+  error: string;
+  blocking_invoice_ids: string[];
 }
 
 export interface ContractExtractedFields {
