@@ -1,17 +1,56 @@
+import { useState } from "react";
 import { Checkbox } from "./ui/Checkbox";
+import { Button } from "./ui/Button";
 import { cn } from "../lib/cn";
-import type { InvoiceDraft } from "../lib/types";
+import { api } from "../lib/api";
+import type { Batch, InvoiceDraft } from "../lib/types";
 
 interface Props {
   draft: InvoiceDraft;
   approved: boolean;
   onToggle: (approved: boolean) => void;
+  batches: Batch[];
+  offBlotter: Batch[];
+  periodStr: string;
 }
 
-export function InvoiceDraftCard({ draft, approved, onToggle }: Props) {
+export function InvoiceDraftCard({
+  draft,
+  approved,
+  onToggle,
+  batches,
+  offBlotter,
+  periodStr,
+}: Props) {
   const subscription = draft.subscription;
   const lineCount =
     (subscription ? subscription.line_items.length : 0) + draft.fee_lines.length;
+
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const handlePreview = async () => {
+    setPreviewing(true);
+    setPreviewError(null);
+    try {
+      const blob = await api.previewInvoicingPdf({
+        draft,
+        batches,
+        off_blotter: offBlotter,
+        period_str: periodStr,
+        manual_adjustments: [],
+      });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setPreviewError(
+        err instanceof Error ? err.message : "Preview failed"
+      );
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
   return (
     <div
@@ -95,18 +134,31 @@ export function InvoiceDraftCard({ draft, approved, onToggle }: Props) {
         </table>
       </div>
 
-      <footer className="mt-5 pt-4 border-t border-card-border flex items-center justify-between gap-4">
+      <footer className="mt-5 pt-4 border-t border-card-border flex items-center justify-between gap-4 flex-wrap">
         <Checkbox
           id={`approve-${draft.invoice_number}`}
           checked={approved}
           onChange={(e) => onToggle(e.target.checked)}
           label="Approve this invoice"
         />
-        <span className="text-xs text-ink-muted">
-          {draft.counterparty.payment_terms_days}-day payment terms ·{" "}
-          {draft.counterparty.currency}
-        </span>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={previewing}
+            onClick={handlePreview}
+          >
+            {previewing ? "Generating…" : "Preview PDF"}
+          </Button>
+          <span className="text-xs text-ink-muted">
+            {draft.counterparty.payment_terms_days}-day payment terms ·{" "}
+            {draft.counterparty.currency}
+          </span>
+        </div>
       </footer>
+      {previewError && (
+        <p className="mt-3 text-xs text-danger">{previewError}</p>
+      )}
     </div>
   );
 }

@@ -318,6 +318,12 @@ export interface InvoiceDraft {
   total: number;
 }
 
+export interface ManualAdjustment {
+  label: string;
+  amount: number;
+  section: "transaction" | "insurance" | "note";
+}
+
 export interface PushResult {
   invoice_number: string;
   counterparty: string;

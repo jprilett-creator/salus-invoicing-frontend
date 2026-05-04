@@ -273,6 +273,9 @@ export function RunInvoicingPage() {
           setPushAsDraft={setPushAsDraft}
           totals={totals}
           xeroPending={xeroPending}
+          batches={batches}
+          offBlotter={offBlotter}
+          periodStr={periodStr}
           onPush={() => pushMut.mutate()}
           onBack={() => setStage("setup")}
         />
@@ -577,6 +580,9 @@ function ReviewView(props: {
   setPushAsDraft: (b: boolean) => void;
   totals: { tx: number; ins: number; sub: number; total: number };
   xeroPending: boolean;
+  batches: Batch[];
+  offBlotter: Batch[];
+  periodStr: string;
   onPush: () => void;
   onBack: () => void;
 }) {
@@ -588,6 +594,9 @@ function ReviewView(props: {
     setPushAsDraft,
     totals,
     xeroPending,
+    batches,
+    offBlotter,
+    periodStr,
     onPush,
     onBack,
   } = props;
@@ -662,6 +671,9 @@ function ReviewView(props: {
               draft={d}
               approved={approved.has(d.invoice_number)}
               onToggle={(on) => toggle(d.invoice_number, on)}
+              batches={batches}
+              offBlotter={offBlotter}
+              periodStr={periodStr}
             />
           </li>
         ))}

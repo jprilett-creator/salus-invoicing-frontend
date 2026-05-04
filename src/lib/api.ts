@@ -14,6 +14,7 @@ import type {
   KycChecks,
   LedgerEntry,
   LoginResponse,
+  ManualAdjustment,
   ParseResponse,
   PushResponse,
   SubscriptionPeriod,
@@ -193,6 +194,58 @@ export const api = {
       method: "POST",
       body: input,
     }),
+
+  previewInvoicingPdf: async (input: {
+    draft: InvoiceDraft;
+    batches: Batch[];
+    off_blotter: Batch[];
+    period_str: string;
+    manual_adjustments: ManualAdjustment[];
+  }): Promise<Blob> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    const token = getStoredToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}/api/invoicing/preview-pdf`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(input),
+      });
+    } catch (e) {
+      throw new ApiError(
+        e instanceof Error ? e.message : "Network error",
+        0,
+        null
+      );
+    }
+
+    if (res.status === 401 && onUnauthorized) onUnauthorized();
+
+    if (!res.ok) {
+      const text = await res.text();
+      let data: unknown = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
+      }
+      const msg =
+        (data && typeof data === "object" && "error" in data
+          ? String((data as { error: unknown }).error)
+          : null) ??
+        (typeof data === "string" ? data : null) ??
+        `Request failed (${res.status})`;
+      throw new ApiError(msg, res.status, data);
+    }
+
+    return res.blob();
+  },
 
   ledgerRecent: (limit = 50) =>
     request<LedgerEntry[]>("/api/ledger/recent", { query: { limit } }),
