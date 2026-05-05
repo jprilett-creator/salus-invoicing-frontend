@@ -12,6 +12,7 @@ import type {
 } from "../lib/types";
 import { Button } from "../components/ui/Button";
 import { OffBlotterTab } from "../components/OffBlotterTab";
+import { FeeScheduleTab } from "../components/FeeScheduleTab";
 import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/Label";
 import { Textarea } from "../components/ui/Textarea";
@@ -195,7 +196,7 @@ export function CounterpartyDetailPage() {
           )
         )}
         {cp && tab === "contracts" && <ContractsTab cp={cp} />}
-        {cp && tab === "fees" && <PlaceholderTab title="Fee schedule" />}
+        {cp && tab === "fees" && <FeeScheduleTab cp={cp} />}
         {cp && tab === "off_blotter" && <OffBlotterTab cp={cp} />}
         {cp && tab === "history" && <PlaceholderTab title="Invoicing history" />}
         {cp && tab === "kyc" && <KycTab cp={cp} cpId={cpId} />}

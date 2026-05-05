@@ -7,6 +7,7 @@ import type {
   CounterpartyCreate,
   CounterpartyDetail,
   CounterpartySummary,
+  FeeScheduleUpdate,
   DashboardResponse,
   GenerateAllDueResponse,
   GenerateDraftResult,
@@ -411,5 +412,11 @@ export const api = {
     request<OffBlotterLine>(`/api/off-blotter/lines/${lineId}/cancel`, {
       method: "POST",
       body: {},
+    }),
+
+  updateFeeSchedules: (cpId: number, body: FeeScheduleUpdate) =>
+    request<CounterpartyDetail>(`/api/counterparties/${cpId}/fee-schedules`, {
+      method: "PUT",
+      body,
     }),
 };

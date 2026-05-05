@@ -60,11 +60,41 @@ export interface Contract {
 
 export interface FeeSchedule {
   id: number | null;
-  fee_type: "transaction" | "insurance" | "subscription" | string;
+  fee_type: "transaction" | "insurance" | "subscription" | "late_payment_surcharge" | string;
   rate: number;
   base: string;
   conditions_json: string | null;
   active: boolean;
+}
+
+export interface FeeScheduleHistoryEntry {
+  fee_type: string;
+  rate: number;
+  base: string;
+  conditions_json: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  changed_by_email: string | null;
+  changed_at: string | null;
+}
+
+export interface FeeScheduleUpdate {
+  transaction?: {
+    headline_pct?: number | null;
+    discount_pct?: number | null;
+    effective_pct: number;
+    basis?: string;
+  };
+  insurance?: {
+    opted_in: boolean;
+    rate_pct?: number | null;
+    max_coverage_days?: number | null;
+  };
+  late_payment_surcharge?: {
+    rate_pct: number;
+    basis?: string | null;
+  };
+  currency?: string;
 }
 
 export interface KycItem {
@@ -223,6 +253,7 @@ export interface CounterpartyDetail {
   kyc_status: KycStatus;
   kyc_attestation: KycAttestation | null;
   commercial_summary: CommercialSummary | null;
+  fee_schedule_history: FeeScheduleHistoryEntry[];
 }
 
 export interface CounterpartyCreate {
