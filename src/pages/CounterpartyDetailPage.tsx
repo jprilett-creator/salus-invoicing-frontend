@@ -8,6 +8,7 @@ import type {
   CounterpartyDetail,
   CounterpartyPatch,
   KycChecks,
+  SignatureStatus,
 } from "../lib/types";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -487,7 +488,7 @@ function ContractsTab({ cp }: { cp: CounterpartyDetail }) {
           {cp.contracts.map((c) => (
             <li
               key={c.id}
-              className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_auto] gap-4 items-center px-4 py-3"
+              className="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr_auto_auto] gap-4 items-center px-4 py-3"
             >
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink truncate flex items-center gap-2">
@@ -506,6 +507,9 @@ function ContractsTab({ cp }: { cp: CounterpartyDetail }) {
               <div className="text-xs text-ink-muted">
                 {c.term_months ? `${c.term_months} months` : "—"}
               </div>
+              <div>
+                <SignaturePill status={c.signature_status} />
+              </div>
               <div className="text-right">
                 {c.id ? (
                   <a
@@ -523,6 +527,38 @@ function ContractsTab({ cp }: { cp: CounterpartyDetail }) {
         </ul>
       )}
     </div>
+  );
+}
+
+function SignaturePill({ status }: { status: SignatureStatus }) {
+  const cfg: Record<SignatureStatus, { label: string; cls: string }> = {
+    signed: {
+      label: "Signed",
+      cls: "bg-mint-dim text-mint-deep border-mint",
+    },
+    partially_signed: {
+      label: "Partial",
+      cls: "bg-warn-bg text-warn-deep border-warn",
+    },
+    unsigned_template: {
+      label: "Unsigned",
+      cls: "bg-warn-bg text-warn-deep border-warn",
+    },
+    unknown: {
+      label: "Status unknown",
+      cls: "bg-neutral-bg text-ink-muted border-card-border",
+    },
+  };
+  const { label, cls } = cfg[status] ?? cfg.unknown;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-medium uppercase tracking-wide",
+        cls
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

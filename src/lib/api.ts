@@ -1,7 +1,9 @@
 import type {
   AuditEntry,
   Batch,
+  Contract,
   ContractExtractResponse,
+  ContractFamily,
   CounterpartyCreate,
   CounterpartyDetail,
   CounterpartySummary,
@@ -17,6 +19,7 @@ import type {
   ManualAdjustment,
   ParseResponse,
   PushResponse,
+  SignatureStatus,
   SubscriptionPeriod,
 } from "./types";
 
@@ -159,6 +162,45 @@ export const api = {
     const fd = new FormData();
     fd.append("pdf", pdf);
     return request<ContractExtractResponse>("/api/contracts/extract", {
+      method: "POST",
+      formData: fd,
+    });
+  },
+
+  uploadCounterpartyContract: (
+    counterpartyId: number,
+    input: {
+      title: string;
+      pdf?: File | null;
+      effective_date?: string | null;
+      term_months?: number | null;
+      notice_days?: number | null;
+      governing_law?: string | null;
+      signed_by_us?: string | null;
+      signed_by_them?: string | null;
+      signed_date?: string | null;
+      signature_status: SignatureStatus;
+      contract_family?: ContractFamily | null;
+      extracted_summary?: string | null;
+    }
+  ) => {
+    const fd = new FormData();
+    if (input.pdf) fd.append("pdf", input.pdf);
+    fd.append("title", input.title);
+    if (input.effective_date) fd.append("effective_date", input.effective_date);
+    if (input.term_months !== null && input.term_months !== undefined)
+      fd.append("term_months", String(input.term_months));
+    if (input.notice_days !== null && input.notice_days !== undefined)
+      fd.append("notice_days", String(input.notice_days));
+    if (input.governing_law) fd.append("governing_law", input.governing_law);
+    if (input.signed_by_us) fd.append("signed_by_us", input.signed_by_us);
+    if (input.signed_by_them) fd.append("signed_by_them", input.signed_by_them);
+    if (input.signed_date) fd.append("signed_date", input.signed_date);
+    fd.append("signature_status", input.signature_status);
+    if (input.contract_family) fd.append("contract_family", input.contract_family);
+    if (input.extracted_summary)
+      fd.append("extracted_summary", input.extracted_summary);
+    return request<Contract>(`/api/counterparties/${counterpartyId}/contracts`, {
       method: "POST",
       formData: fd,
     });

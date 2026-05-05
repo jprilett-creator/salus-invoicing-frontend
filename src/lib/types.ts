@@ -32,6 +32,14 @@ export interface CounterpartySummary {
   last_invoiced_amount: number | null;
 }
 
+export type SignatureStatus =
+  | "signed"
+  | "partially_signed"
+  | "unsigned_template"
+  | "unknown";
+
+export type ContractFamily = "bilateral" | "platform_gtc";
+
 export interface Contract {
   id: number | null;
   title: string;
@@ -42,6 +50,8 @@ export interface Contract {
   notice_days: number | null;
   governing_law: string | null;
   status: string;
+  signature_status: SignatureStatus;
+  contract_family: ContractFamily | null;
   signed_by_us: string | null;
   signed_by_them: string | null;
   signed_date: string | null;
@@ -220,6 +230,7 @@ export interface ArchiveBlocked {
 export interface ContractExtractedFields {
   identity: {
     legal_name: string | null;
+    trading_name: string | null;
     short_name: string | null;
     jurisdiction: string | null;
     company_number: string | null;
@@ -247,6 +258,8 @@ export interface ContractExtractedFields {
     transaction_rate_pct: number | null;
     insurance_rate_pct: number | null;
   };
+  signature_status: SignatureStatus;
+  contract_family: ContractFamily | null;
   extraction_confidence: "high" | "medium" | "low" | null;
   extraction_notes: string | null;
 }

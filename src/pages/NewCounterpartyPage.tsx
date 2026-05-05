@@ -1,11 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, FileText, Plus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Plus } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   ContractExtractedFields,
+  ContractFamily,
   CounterpartyCreate,
   CounterpartyStatus,
+  SignatureStatus,
 } from "../lib/types";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -117,6 +119,10 @@ export function NewCounterpartyPage() {
   const [extractStage, setExtractStage] = useState<ExtractStage>("idle");
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractionAvailable, setExtractionAvailable] = useState<boolean>(true);
+  const [signatureStatus, setSignatureStatus] =
+    useState<SignatureStatus>("unknown");
+  const [contractFamily, setContractFamily] =
+    useState<ContractFamily | null>(null);
 
   // Form state
   const [identity, setIdentity] = useState<IdentityFields>(EMPTY_IDENTITY);
@@ -190,6 +196,9 @@ export function NewCounterpartyPage() {
 
   const applyExtraction = (fields: ContractExtractedFields) => {
     const newKeys = new Set<string>();
+
+    setSignatureStatus(fields.signature_status ?? "unknown");
+    setContractFamily(fields.contract_family ?? null);
 
     const id = fields.identity;
     if (id) {
@@ -355,11 +364,45 @@ export function NewCounterpartyPage() {
 
     try {
       const created = await api.createCounterparty(body);
-      const tail =
-        pdfFile || hasContractFields(contract) || hasFeesFields(fees)
-          ? " Contract & fees attachment is coming in a follow-up."
+
+      // Persist the contract record alongside the counterparty so it shows
+      // up on the detail page (signed or not). We only attempt this when we
+      // have a PDF or any contract metadata to record.
+      let contractAttached = false;
+      let contractWarning: string | null = null;
+      if (pdfFile || hasContractFields(contract)) {
+        try {
+          await api.uploadCounterpartyContract(created.id, {
+            title: contract.title.trim() || pdfFile?.name || "Contract",
+            pdf: pdfFile,
+            effective_date: nullIfBlank(contract.effective_date),
+            term_months: parseIntOrNull(contract.term_months),
+            notice_days: parseIntOrNull(contract.notice_days),
+            governing_law: nullIfBlank(contract.governing_law),
+            signed_by_us: nullIfBlank(contract.signed_by_us),
+            signed_by_them: nullIfBlank(contract.signed_by_them),
+            signed_date: nullIfBlank(contract.signed_date),
+            signature_status: signatureStatus,
+            contract_family: contractFamily,
+          });
+          contractAttached = true;
+        } catch (e) {
+          contractWarning =
+            e instanceof Error ? e.message : "Could not save contract.";
+        }
+      }
+
+      const feesPending = hasFeesFields(fees)
+        ? " Fee schedule attachment is coming in a follow-up."
+        : "";
+      const contractMsg = contractWarning
+        ? ` Contract upload failed: ${contractWarning}`
+        : contractAttached
+          ? signatureStatus === "signed"
+            ? " Contract attached."
+            : " Contract attached as unsigned (saved for reference)."
           : "";
-      toast(`Counterparty "${created.short_name}" saved.${tail}`);
+      toast(`Counterparty "${created.short_name}" saved.${contractMsg}${feesPending}`);
       navigate("/counterparties");
     } catch (err) {
       if (err instanceof ApiError) {
@@ -379,6 +422,8 @@ export function NewCounterpartyPage() {
     setExtractStage("idle");
     setExtractError(null);
     setExtractedKeys(new Set());
+    setSignatureStatus("unknown");
+    setContractFamily(null);
     setIdentity(EMPTY_IDENTITY);
     setContract(EMPTY_CONTRACT);
     setFees(EMPTY_FEES);
@@ -416,35 +461,41 @@ export function NewCounterpartyPage() {
           )}
 
           {extractStage === "done" && pdfFile && (
-            <div className="flex items-center justify-between gap-4 py-1">
-              <div className="flex items-center gap-3 min-w-0">
-                <CheckCircle2
-                  className="h-5 w-5 text-mint shrink-0"
-                  strokeWidth={2}
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink truncate">
-                    {pdfFile.name}
-                  </p>
-                  <p className="text-xs text-ink-muted">
-                    {extractionAvailable
-                      ? extractedKeys.size > 0
-                        ? `${extractedKeys.size} field${
-                            extractedKeys.size === 1 ? "" : "s"
-                          } pre-filled`
-                        : "No fields could be extracted; fill manually."
-                      : "Extraction unavailable; fill manually."}
-                  </p>
+            <>
+              <div className="flex items-center justify-between gap-4 py-1">
+                <div className="flex items-center gap-3 min-w-0">
+                  <CheckCircle2
+                    className="h-5 w-5 text-mint shrink-0"
+                    strokeWidth={2}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">
+                      {pdfFile.name}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      {extractionAvailable
+                        ? extractedKeys.size > 0
+                          ? `${extractedKeys.size} field${
+                              extractedKeys.size === 1 ? "" : "s"
+                            } pre-filled`
+                          : "No fields could be extracted; fill manually."
+                        : "Extraction unavailable; fill manually."}
+                    </p>
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={replacePdf}
+                  className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline shrink-0"
+                >
+                  Replace
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={replacePdf}
-                className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline shrink-0"
-              >
-                Replace
-              </button>
-            </div>
+
+              {extractionAvailable && signatureStatus !== "signed" && (
+                <SignatureBanner status={signatureStatus} family={contractFamily} />
+              )}
+            </>
           )}
 
           {extractStage === "error" && (
@@ -933,6 +984,37 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
+function SignatureBanner({
+  status,
+  family,
+}: {
+  status: SignatureStatus;
+  family: ContractFamily | null;
+}) {
+  const headline =
+    status === "unsigned_template"
+      ? "Unsigned — awaiting execution. Saved for reference."
+      : status === "partially_signed"
+        ? "Partially signed — counter-signature outstanding. Saved for reference."
+        : "Signature evidence not recognised. Saved for reference.";
+  const sub =
+    family === "platform_gtc" && status === "unsigned_template"
+      ? "Platform service agreement template detected; no counterparty identified from the document."
+      : null;
+  return (
+    <div className="mt-4 flex items-start gap-3 rounded-md border border-warn bg-warn-bg px-4 py-3">
+      <AlertTriangle
+        className="h-4 w-4 text-warn mt-0.5 shrink-0"
+        strokeWidth={2}
+      />
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-warn-deep">{headline}</p>
+        {sub && <p className="mt-0.5 text-xs text-warn-deep/80">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
 function AddFeeMenu({
   show,
   setShow,
@@ -975,6 +1057,13 @@ function AddFeeMenu({
 
 function nullIfBlank(s: string): string | null {
   return s.trim() ? s.trim() : null;
+}
+
+function parseIntOrNull(s: string): number | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
 function hasContractFields(c: ContractFields): boolean {
