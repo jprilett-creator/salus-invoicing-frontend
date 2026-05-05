@@ -366,3 +366,87 @@ export interface HealthResponse {
   db_ok: boolean;
   xero_configured: boolean;
 }
+
+// ---------------- Off-blotter / insurance certificates ----------------
+
+export interface InsuranceCertExtraction {
+  certificate_number: string | null;
+  certificate_date: string | null;
+  inception_date: string | null;
+  supplier_legal_name: string | null;
+  supplier_address: string | null;
+  buyer_legal_name: string | null;
+  buyer_address: string | null;
+  commodity: string | null;
+  quantity: string | null;
+  insured_value_amount: number | null;
+  insured_value_currency: string | null;
+  vessel_or_carrier: string | null;
+  port_of_loading: string | null;
+  port_of_discharge: string | null;
+  incoterm: string | null;
+  po_reference: string | null;
+  type_of_insurance: string | null;
+  insurer: string | null;
+  broker: string | null;
+  referenced_supplier_invoice: string | null;
+  loss_payee: string | null;
+  additional_insured: string | null;
+  extraction_confidence: "high" | "medium" | "low" | null;
+  extraction_notes: string | null;
+}
+
+export interface OffBlotterCounterpartyMatch {
+  id: number;
+  short_name: string;
+  name: string;
+}
+
+export interface OffBlotterMatch {
+  candidates: OffBlotterCounterpartyMatch[];
+  suggested_action: "use_existing" | "pick_one" | "create_new";
+}
+
+export interface OffBlotterExtractResponse {
+  extracted_fields: InsuranceCertExtraction;
+  extraction_available: boolean;
+  extracted: boolean;
+  error?: string;
+  match: OffBlotterMatch;
+}
+
+export interface OffBlotterAccrual {
+  accrual_period: string;
+  days_on_risk_this_period: number;
+  cumulative_days_to_period_end: number;
+  fee_amount: number;
+  fee_currency: string;
+  invoiced: boolean;
+}
+
+export type OffBlotterStatus = "active" | "funded" | "expired" | "cancelled";
+
+export interface OffBlotterLine {
+  id: number;
+  counterparty_id: number;
+  certificate_number: string | null;
+  certificate_pdf_filename: string | null;
+  certificate_pdf_size_bytes: number | null;
+  inception_date: string;
+  buyer_reference: string | null;
+  commodity: string | null;
+  quantity_text: string | null;
+  insured_value_amount: number;
+  insured_value_currency: string;
+  po_reference: string | null;
+  referenced_supplier_invoice: string | null;
+  status: OffBlotterStatus;
+  funded_at: string | null;
+  expires_at: string;
+  days_remaining: number;
+  days_used: number;
+  current_month_fee: number;
+  total_accrued_to_date: number;
+  accruals: OffBlotterAccrual[];
+  created_at: string | null;
+}

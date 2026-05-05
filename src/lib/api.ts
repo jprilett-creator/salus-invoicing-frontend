@@ -17,6 +17,8 @@ import type {
   LedgerEntry,
   LoginResponse,
   ManualAdjustment,
+  OffBlotterExtractResponse,
+  OffBlotterLine,
   ParseResponse,
   PushResponse,
   SignatureStatus,
@@ -346,5 +348,68 @@ export const api = {
   listCounterpartiesArchived: () =>
     request<CounterpartySummary[]>("/api/counterparties", {
       query: { include_archived: "true" },
+    }),
+
+  // ---- Off-blotter (insurance certificates) ----
+
+  extractOffBlotterCert: (pdf: File) => {
+    const fd = new FormData();
+    fd.append("pdf", pdf);
+    return request<OffBlotterExtractResponse>("/api/off-blotter/extract", {
+      method: "POST",
+      formData: fd,
+    });
+  },
+
+  createOffBlotterLine: (input: {
+    counterparty_id: number;
+    inception_date: string;
+    insured_value_amount: number | string;
+    insured_value_currency: string;
+    certificate_number?: string | null;
+    buyer_reference?: string | null;
+    commodity?: string | null;
+    quantity_text?: string | null;
+    po_reference?: string | null;
+    referenced_supplier_invoice?: string | null;
+    cert_extraction_json?: string | null;
+    pdf?: File | null;
+  }) => {
+    const fd = new FormData();
+    fd.append("counterparty_id", String(input.counterparty_id));
+    fd.append("inception_date", input.inception_date);
+    fd.append("insured_value_amount", String(input.insured_value_amount));
+    fd.append("insured_value_currency", input.insured_value_currency);
+    if (input.certificate_number) fd.append("certificate_number", input.certificate_number);
+    if (input.buyer_reference) fd.append("buyer_reference", input.buyer_reference);
+    if (input.commodity) fd.append("commodity", input.commodity);
+    if (input.quantity_text) fd.append("quantity_text", input.quantity_text);
+    if (input.po_reference) fd.append("po_reference", input.po_reference);
+    if (input.referenced_supplier_invoice)
+      fd.append("referenced_supplier_invoice", input.referenced_supplier_invoice);
+    if (input.cert_extraction_json)
+      fd.append("cert_extraction_json", input.cert_extraction_json);
+    if (input.pdf) fd.append("pdf", input.pdf);
+    return request<OffBlotterLine>("/api/off-blotter/lines", {
+      method: "POST",
+      formData: fd,
+    });
+  },
+
+  listOffBlotterLines: (counterpartyId: number) =>
+    request<OffBlotterLine[]>(
+      `/api/counterparties/${counterpartyId}/off-blotter`
+    ),
+
+  markOffBlotterFunded: (lineId: number, fundedAt: string) =>
+    request<OffBlotterLine>(`/api/off-blotter/lines/${lineId}/funded`, {
+      method: "POST",
+      body: { funded_at: fundedAt },
+    }),
+
+  cancelOffBlotterLine: (lineId: number) =>
+    request<OffBlotterLine>(`/api/off-blotter/lines/${lineId}/cancel`, {
+      method: "POST",
+      body: {},
     }),
 };

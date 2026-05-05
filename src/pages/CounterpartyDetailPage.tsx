@@ -11,6 +11,7 @@ import type {
   SignatureStatus,
 } from "../lib/types";
 import { Button } from "../components/ui/Button";
+import { OffBlotterTab } from "../components/OffBlotterTab";
 import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/Label";
 import { Textarea } from "../components/ui/Textarea";
@@ -21,12 +22,20 @@ import { useToast } from "../components/ui/Toaster";
 import { formatDateTime, formatShortDate } from "../lib/format";
 import { cn } from "../lib/cn";
 
-type Tab = "overview" | "contracts" | "fees" | "history" | "kyc" | "audit";
+type Tab =
+  | "overview"
+  | "contracts"
+  | "fees"
+  | "off_blotter"
+  | "history"
+  | "kyc"
+  | "audit";
 
-const TABS: { key: Tab; label: string }[] = [
+const ALL_TABS: { key: Tab; label: string; supplierOnly?: boolean }[] = [
   { key: "overview", label: "Overview" },
   { key: "contracts", label: "Contracts" },
   { key: "fees", label: "Fee schedule" },
+  { key: "off_blotter", label: "Off-blotter / Insurance", supplierOnly: true },
   { key: "history", label: "Invoicing history" },
   { key: "kyc", label: "KYC" },
   { key: "audit", label: "Audit" },
@@ -125,7 +134,9 @@ export function CounterpartyDetailPage() {
           </div>
 
           <nav className="mt-6 flex items-center gap-6 -mb-px">
-            {TABS.map((t) => (
+            {ALL_TABS.filter(
+              (t) => !t.supplierOnly || cp?.roles.includes("supplier")
+            ).map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -178,6 +189,7 @@ export function CounterpartyDetailPage() {
         )}
         {cp && tab === "contracts" && <ContractsTab cp={cp} />}
         {cp && tab === "fees" && <PlaceholderTab title="Fee schedule" />}
+        {cp && tab === "off_blotter" && <OffBlotterTab cp={cp} />}
         {cp && tab === "history" && <PlaceholderTab title="Invoicing history" />}
         {cp && tab === "kyc" && <KycTab cp={cp} cpId={cpId} />}
         {cp && tab === "audit" && <AuditTab cpId={cpId} />}
