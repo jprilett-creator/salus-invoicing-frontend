@@ -13,6 +13,7 @@ import type {
 import { Button } from "../components/ui/Button";
 import { OffBlotterTab } from "../components/OffBlotterTab";
 import { FeeScheduleTab } from "../components/FeeScheduleTab";
+import { InvoicingHistoryTab } from "../components/InvoicingHistoryTab";
 import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/Label";
 import { Textarea } from "../components/ui/Textarea";
@@ -198,7 +199,7 @@ export function CounterpartyDetailPage() {
         {cp && tab === "contracts" && <ContractsTab cp={cp} />}
         {cp && tab === "fees" && <FeeScheduleTab cp={cp} />}
         {cp && tab === "off_blotter" && <OffBlotterTab cp={cp} />}
-        {cp && tab === "history" && <PlaceholderTab title="Invoicing history" />}
+        {cp && tab === "history" && <InvoicingHistoryTab cp={cp} />}
         {cp && tab === "kyc" && <KycTab cp={cp} cpId={cpId} />}
         {cp && tab === "audit" && <AuditTab cpId={cpId} />}
       </div>

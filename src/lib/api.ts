@@ -6,6 +6,7 @@ import type {
   ContractFamily,
   CounterpartyCreate,
   CounterpartyDetail,
+  CounterpartyInvoice,
   CounterpartySummary,
   FeeScheduleUpdate,
   DashboardResponse,
@@ -418,5 +419,13 @@ export const api = {
     request<CounterpartyDetail>(`/api/counterparties/${cpId}/fee-schedules`, {
       method: "PUT",
       body,
+    }),
+
+  listCounterpartyInvoices: (
+    cpId: number,
+    filters: { from?: string; to?: string } = {}
+  ) =>
+    request<CounterpartyInvoice[]>(`/api/counterparties/${cpId}/invoices`, {
+      query: { from: filters.from, to: filters.to },
     }),
 };

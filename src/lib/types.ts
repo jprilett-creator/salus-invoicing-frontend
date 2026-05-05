@@ -425,6 +425,25 @@ export interface HealthResponse {
   xero_configured: boolean;
 }
 
+export type InvoiceStatus =
+  | "drafted"
+  | "pushed_to_xero"
+  | "paid"
+  | "disputed";
+
+export interface CounterpartyInvoice {
+  invoice_number: string;
+  invoiced_at: string;
+  period: string | null;
+  salus_fee: number;
+  insurance_fee: number;
+  subscription_fee: number;
+  other_fees: number;
+  total: number;
+  xero_invoice_id: string | null;
+  status: InvoiceStatus;
+}
+
 // ---------------- Off-blotter / insurance certificates ----------------
 
 export interface InsuranceCertExtraction {
