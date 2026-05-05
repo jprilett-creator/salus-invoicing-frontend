@@ -12,7 +12,6 @@ import {
 import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
-  InsuranceCertExtraction,
   OffBlotterExtractResponse,
   OffBlotterLine,
   OffBlotterStatus,

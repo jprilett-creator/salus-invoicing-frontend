@@ -744,15 +744,6 @@ function SignaturePill({ status }: { status: SignatureStatus }) {
   );
 }
 
-function PlaceholderTab({ title }: { title: string }) {
-  return (
-    <div className="bg-white border border-card-border rounded-lg p-10 text-center">
-      <h2 className="text-base font-semibold text-ink">{title}</h2>
-      <p className="mt-2 text-sm text-ink-muted">Coming soon.</p>
-    </div>
-  );
-}
-
 const KYC_LABELS: { key: keyof KycChecks; label: string; mandatory: boolean }[] = [
   { key: "identity", label: "Identity verified (passport / company registry)", mandatory: true },
   { key: "ubo", label: "Beneficial ownership confirmed (>25% UBOs identified)", mandatory: true },

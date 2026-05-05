@@ -4,7 +4,6 @@ import { Download } from "lucide-react";
 import { api } from "../lib/api";
 import type {
   CounterpartyDetail,
-  CounterpartyInvoice,
   InvoiceStatus,
 } from "../lib/types";
 import { Spinner } from "./ui/Spinner";
