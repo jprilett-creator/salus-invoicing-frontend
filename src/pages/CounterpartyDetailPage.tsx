@@ -133,6 +133,13 @@ export function CounterpartyDetailPage() {
             </div>
           </div>
 
+          {cp?.commercial_summary && (
+            <CommercialTermsPanel
+              cp={cp}
+              onContractClick={() => setTab("contracts")}
+            />
+          )}
+
           <nav className="mt-6 flex items-center gap-6 -mb-px">
             {ALL_TABS.filter(
               (t) => !t.supplierOnly || cp?.roles.includes("supplier")
@@ -539,6 +546,167 @@ function ContractsTab({ cp }: { cp: CounterpartyDetail }) {
         </ul>
       )}
     </div>
+  );
+}
+
+function CommercialTermsPanel({
+  cp,
+  onContractClick,
+}: {
+  cp: CounterpartyDetail;
+  onContractClick: () => void;
+}) {
+  const s = cp.commercial_summary;
+  if (!s) return null;
+  const fmt = (n: number) =>
+    `${s.currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const pct = (n: number | null) =>
+    n == null ? "—" : `${n.toFixed(2).replace(/\.?0+$/, "")}%`;
+
+  return (
+    <div className="mt-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* Salus fee rate */}
+      <Tile title="Salus fee">
+        {s.transaction_rate_effective_pct == null ? (
+          <span className="text-sm text-ink-muted">Not set</span>
+        ) : s.transaction_rate_discount_pct == null ||
+          s.transaction_rate_discount_pct === 0 ? (
+          <div className="text-base font-semibold text-ink">
+            {pct(s.transaction_rate_effective_pct)}
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            <div className="text-xs text-ink-muted">
+              Headline {pct(s.transaction_rate_headline_pct)}
+            </div>
+            <div className="text-xs text-warn-deep">
+              −{pct(Math.abs(s.transaction_rate_discount_pct))}
+            </div>
+            <div className="text-base font-semibold text-ink">
+              {pct(s.transaction_rate_effective_pct)}
+              <span className="ml-1 text-[10px] text-ink-muted uppercase tracking-wide">
+                effective
+              </span>
+            </div>
+          </div>
+        )}
+      </Tile>
+
+      {/* Insurance admin */}
+      <Tile title="Insurance admin">
+        {s.insurance_opted_in ? (
+          <div>
+            <div className="text-base font-semibold text-mint-deep">Yes</div>
+            <div className="text-xs text-ink-muted">
+              {pct(s.insurance_rate_pct)}
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-ink-muted">Not opted in</div>
+        )}
+      </Tile>
+
+      {/* Last invoice */}
+      <Tile title="Last invoice">
+        {s.last_invoice ? (
+          <div>
+            <div className="text-base font-semibold text-ink truncate">
+              {fmt(s.last_invoice.amount)}
+            </div>
+            <div className="text-xs text-ink-muted truncate">
+              {s.last_invoice.invoice_number}
+            </div>
+            <div className="text-xs text-ink-muted">
+              {formatShortDate(s.last_invoice.invoiced_at)}
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-ink-muted">No invoices yet</div>
+        )}
+      </Tile>
+
+      {/* MTD */}
+      <Tile title="MTD billed">
+        <div className="text-base font-semibold text-ink">
+          {fmt(s.mtd_billed)}
+        </div>
+      </Tile>
+
+      {/* YTD */}
+      <Tile title="YTD billed">
+        <div className="text-base font-semibold text-ink">
+          {fmt(s.ytd_billed)}
+        </div>
+      </Tile>
+
+      {/* Contract status */}
+      <Tile title="Contract">
+        <button
+          type="button"
+          onClick={onContractClick}
+          className="text-left w-full"
+        >
+          <ContractStatusPill status={s.contract_status} />
+        </button>
+      </Tile>
+    </div>
+  );
+}
+
+function Tile({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl bg-white/80 border border-card-border px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-ink-muted mb-1.5">
+        {title}
+      </div>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+function ContractStatusPill({
+  status,
+}: {
+  status: "signed" | "unsigned" | "expiring" | "expired" | "none";
+}) {
+  const cfg: Record<typeof status, { label: string; cls: string }> = {
+    signed: {
+      label: "Signed",
+      cls: "bg-mint-dim text-mint-deep border-mint",
+    },
+    unsigned: {
+      label: "Unsigned",
+      cls: "bg-warn-bg text-warn-deep border-warn",
+    },
+    expiring: {
+      label: "Expiring soon",
+      cls: "bg-warn-bg text-warn-deep border-warn",
+    },
+    expired: {
+      label: "Expired",
+      cls: "bg-danger-bg text-danger-deep border-danger",
+    },
+    none: {
+      label: "No contract",
+      cls: "bg-neutral-bg text-ink-muted border-card-border",
+    },
+  };
+  const { label, cls } = cfg[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-medium",
+        cls
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

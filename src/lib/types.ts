@@ -165,6 +165,32 @@ export interface GenerateAllDueResponse {
   xero_configured: boolean;
 }
 
+export type ContractDisplayStatus =
+  | "signed"
+  | "unsigned"
+  | "expiring"
+  | "expired"
+  | "none";
+
+export interface LastInvoiceSummary {
+  invoice_number: string;
+  invoiced_at: string;
+  amount: number;
+}
+
+export interface CommercialSummary {
+  currency: string;
+  last_invoice: LastInvoiceSummary | null;
+  mtd_billed: number;
+  ytd_billed: number;
+  insurance_opted_in: boolean;
+  insurance_rate_pct: number | null;
+  transaction_rate_headline_pct: number | null;
+  transaction_rate_discount_pct: number | null;
+  transaction_rate_effective_pct: number | null;
+  contract_status: ContractDisplayStatus;
+}
+
 export interface CounterpartyDetail {
   id: number;
   name: string;
@@ -196,6 +222,7 @@ export interface CounterpartyDetail {
   archived_by_email: string | null;
   kyc_status: KycStatus;
   kyc_attestation: KycAttestation | null;
+  commercial_summary: CommercialSummary | null;
 }
 
 export interface CounterpartyCreate {
