@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Pencil } from "lucide-react";
+import { AlertCircle, Pencil } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
@@ -14,12 +14,14 @@ import { Label } from "./ui/Label";
 import { Checkbox } from "./ui/Checkbox";
 import { Select } from "./ui/Select";
 import { useToast } from "./ui/Toaster";
-import { formatShortDate } from "../lib/format";
+import { formatShortDate, formatUsdPrecise } from "../lib/format";
+import { getOutstandingFees } from "../lib/dashboardConstants";
 
 const DEFAULT_LATE_RATE = 1.5; // % per Annex A
 
 export function FeeScheduleTab({ cp }: { cp: CounterpartyDetail }) {
   const [editing, setEditing] = useState(false);
+  const outstanding = getOutstandingFees(cp.short_name);
   return (
     <div className="space-y-6">
       <div className="bg-white border border-card-border rounded-lg p-6">
@@ -46,12 +48,71 @@ export function FeeScheduleTab({ cp }: { cp: CounterpartyDetail }) {
           <FeeScheduleView cp={cp} />
         )}
       </div>
+      {outstanding.length > 0 && <OutstandingFeesPanel lines={outstanding} />}
       {cp.fee_schedule_history.length > 0 && (
         <div className="bg-white border border-card-border rounded-lg p-6">
           <h3 className="text-sm font-semibold text-ink mb-3">Change history</h3>
           <HistoryTable entries={cp.fee_schedule_history} />
         </div>
       )}
+    </div>
+  );
+}
+
+function OutstandingFeesPanel({
+  lines,
+}: {
+  lines: ReturnType<typeof getOutstandingFees>;
+}) {
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  return (
+    <div className="bg-white border border-card-border rounded-lg p-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-ink flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-warn" strokeWidth={2} />
+            Outstanding line items
+          </h3>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Accrued fees not yet on a Xero invoice.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-wider text-ink-muted">
+            Total outstanding
+          </div>
+          <div className="text-base font-semibold text-ink tabular-nums">
+            {formatUsdPrecise(total)}
+          </div>
+        </div>
+      </div>
+      <ul className="divide-y divide-card-border border border-card-border rounded-md overflow-hidden">
+        {lines.map((l, i) => (
+          <li
+            key={i}
+            className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
+          >
+            <div className="min-w-0">
+              <div className="text-ink truncate">{l.description}</div>
+              {l.notes && (
+                <div className="mt-0.5 text-xs text-ink-muted">{l.notes}</div>
+              )}
+            </div>
+            <div className="text-right tabular-nums shrink-0">
+              <div className="text-ink font-medium">
+                {formatUsdPrecise(l.amount)}
+              </div>
+              <div className="text-[10px] uppercase tracking-wide text-ink-muted">
+                {l.fee_type === "insurance"
+                  ? "Insurance admin"
+                  : l.fee_type === "transaction"
+                  ? "Transaction"
+                  : l.fee_type}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

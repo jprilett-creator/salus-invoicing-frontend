@@ -7,27 +7,49 @@ import {
   ExternalLink,
   FileText,
   MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
+  FeeSchedule,
   OffBlotterExtractResponse,
   OffBlotterLine,
   OffBlotterStatus,
 } from "../lib/types";
 import { DropZone } from "./DropZone";
 import { Button } from "./ui/Button";
+import { Input } from "./ui/Input";
+import { Label } from "./ui/Label";
+import { Select } from "./ui/Select";
+import { Textarea } from "./ui/Textarea";
 import { Spinner } from "./ui/Spinner";
 import { useToast } from "./ui/Toaster";
 import { formatShortDate } from "../lib/format";
+import {
+  deriveManualLine,
+  useManualOffBlotterLines,
+  type ManualOffBlotterLine,
+  type NewManualOffBlotterLine,
+} from "../lib/manualOffBlotter";
 import { cn } from "../lib/cn";
 
 type Stage = "idle" | "extracting" | "preview" | "saving" | "error";
+type Mode = "drop" | "manual";
 
 const apiBase =
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
   "https://salus-invoicing.onrender.com";
+
+function pickInsuranceRate(cp: CounterpartyDetail): number | null {
+  const ins = cp.fee_schedules.find(
+    (f: FeeSchedule) => f.fee_type === "insurance"
+  );
+  return ins ? ins.rate : null;
+}
 
 export function OffBlotterTab({ cp }: { cp: CounterpartyDetail }) {
   const qc = useQueryClient();
@@ -38,10 +60,14 @@ export function OffBlotterTab({ cp }: { cp: CounterpartyDetail }) {
   });
 
   const [stage, setStage] = useState<Stage>("idle");
+  const [mode, setMode] = useState<Mode>("drop");
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [extraction, setExtraction] =
     useState<OffBlotterExtractResponse | null>(null);
+
+  const manual = useManualOffBlotterLines(cp.id);
+  const insuranceRate = pickInsuranceRate(cp);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["off-blotter", cp.id] });
 
@@ -124,15 +150,30 @@ export function OffBlotterTab({ cp }: { cp: CounterpartyDetail }) {
 
   return (
     <div className="space-y-6">
-      {/* Drop zone / extraction preview */}
+      {/* Drop zone / extraction preview / manual entry */}
       <section className="bg-white border border-card-border rounded-lg p-6">
         {stage === "idle" && (
-          <DropZone
-            accept="application/pdf"
-            onFile={handleDrop}
-            primaryText="Drop insurance certificate here"
-            secondaryText="Salus will extract the cargo, value, and parties, and create an off-blotter line attributed to this supplier."
-          />
+          <>
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <ModeTabs mode={mode} onChange={setMode} />
+            </div>
+            {mode === "drop" ? (
+              <DropZone
+                accept="application/pdf"
+                onFile={handleDrop}
+                primaryText="Drop insurance certificate here"
+                secondaryText="Salus will extract the cargo, value, and parties, and create an off-blotter line attributed to this supplier."
+              />
+            ) : (
+              <ManualEntryForm
+                cp={cp}
+                onSaved={() => {
+                  toast("Off-blotter line added.");
+                }}
+                addLine={manual.add}
+              />
+            )}
+          </>
         )}
         {stage === "extracting" && (
           <div className="flex items-center gap-3 py-6">
@@ -197,9 +238,331 @@ export function OffBlotterTab({ cp }: { cp: CounterpartyDetail }) {
         )}
       </section>
 
+      {/* Manual entries (frontend-only) */}
+      {manual.lines.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-ink mb-3">
+            Manual entries{" "}
+            <span className="text-xs font-normal text-ink-muted">
+              · saved locally, not yet synced
+            </span>
+          </h2>
+          <ul className="space-y-3">
+            {manual.lines.map((line) => (
+              <ManualLineCard
+                key={line.id}
+                line={line}
+                insuranceRate={insuranceRate}
+                onRemove={() => manual.remove(line.id)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* History */}
       {history.length > 0 && <HistorySection lines={history} />}
     </div>
+  );
+}
+
+function ModeTabs({
+  mode,
+  onChange,
+}: {
+  mode: Mode;
+  onChange: (m: Mode) => void;
+}) {
+  return (
+    <div className="inline-flex border border-card-border rounded-md p-0.5 bg-page">
+      {(["drop", "manual"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={cn(
+            "px-3 py-1.5 text-xs font-medium rounded transition-colors",
+            mode === m
+              ? "bg-white text-ink shadow-sm border border-card-border"
+              : "text-ink-muted hover:text-ink"
+          )}
+        >
+          {m === "drop" ? "Upload certificate" : "Add manually"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ManualEntryForm({
+  cp,
+  addLine,
+  onSaved,
+}: {
+  cp: CounterpartyDetail;
+  addLine: (input: NewManualOffBlotterLine) => void;
+  onSaved: () => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({
+    inception_date: today,
+    insured_value_amount: "",
+    insured_value_currency: cp.currency || "USD",
+    certificate_number: "",
+    buyer_reference: "",
+    commodity: "",
+    quantity_text: "",
+    po_reference: "",
+    referenced_supplier_invoice: "",
+    notes: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  const set = <K extends keyof typeof form>(k: K, v: string) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const amount = Number(form.insured_value_amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a positive insured value.");
+      return;
+    }
+    if (!form.inception_date) {
+      setError("Inception date is required.");
+      return;
+    }
+    addLine({
+      counterparty_id: cp.id,
+      inception_date: form.inception_date,
+      insured_value_amount: amount,
+      insured_value_currency: form.insured_value_currency,
+      certificate_number: form.certificate_number || null,
+      buyer_reference: form.buyer_reference || null,
+      commodity: form.commodity || null,
+      quantity_text: form.quantity_text || null,
+      po_reference: form.po_reference || null,
+      referenced_supplier_invoice: form.referenced_supplier_invoice || null,
+      notes: form.notes || null,
+    });
+    setForm((f) => ({
+      ...f,
+      insured_value_amount: "",
+      certificate_number: "",
+      commodity: "",
+      quantity_text: "",
+      po_reference: "",
+      referenced_supplier_invoice: "",
+      notes: "",
+    }));
+    onSaved();
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <Label>Inception date</Label>
+          <Input
+            type="date"
+            value={form.inception_date}
+            onChange={(e) => set("inception_date", e.target.value)}
+            required
+          />
+        </div>
+        <div>
+          <Label>Insured value</Label>
+          <Input
+            type="number"
+            min={0}
+            step="0.01"
+            inputMode="decimal"
+            value={form.insured_value_amount}
+            onChange={(e) => set("insured_value_amount", e.target.value)}
+            placeholder="0.00"
+            required
+          />
+        </div>
+        <div>
+          <Label>Currency</Label>
+          <Select
+            value={form.insured_value_currency}
+            onChange={(e) => set("insured_value_currency", e.target.value)}
+          >
+            {["USD", "EUR", "GBP", "SGD", "AED"].map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Certificate #</Label>
+          <Input
+            value={form.certificate_number}
+            onChange={(e) => set("certificate_number", e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div>
+          <Label>Buyer reference</Label>
+          <Input
+            value={form.buyer_reference}
+            onChange={(e) => set("buyer_reference", e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div>
+          <Label>PO reference</Label>
+          <Input
+            value={form.po_reference}
+            onChange={(e) => set("po_reference", e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div>
+          <Label>Commodity</Label>
+          <Input
+            value={form.commodity}
+            onChange={(e) => set("commodity", e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div>
+          <Label>Quantity</Label>
+          <Input
+            value={form.quantity_text}
+            onChange={(e) => set("quantity_text", e.target.value)}
+            placeholder="Optional"
+          />
+        </div>
+        <div>
+          <Label>Linked supplier invoice</Label>
+          <Input
+            value={form.referenced_supplier_invoice}
+            onChange={(e) =>
+              set("referenced_supplier_invoice", e.target.value)
+            }
+            placeholder="Optional"
+          />
+        </div>
+        <div className="md:col-span-3">
+          <Label>Notes</Label>
+          <Textarea
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            placeholder="Optional context, e.g. broker name, delivery notes"
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-danger">{error}</p>}
+
+      <div className="flex items-center justify-end gap-3">
+        <p className="text-xs text-ink-muted mr-auto">
+          <Pencil className="inline-block h-3 w-3 mr-1" />
+          Saved locally for now — backend sync coming.
+        </p>
+        <Button type="submit">
+          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          Add line
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ManualLineCard({
+  line,
+  insuranceRate,
+  onRemove,
+}: {
+  line: ManualOffBlotterLine;
+  insuranceRate: number | null;
+  onRemove: () => void;
+}) {
+  const derived = deriveManualLine(line, insuranceRate);
+  return (
+    <li className="bg-white border border-card-border border-dashed rounded-lg p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <FileText className="h-4 w-4 text-ink-muted" />
+            <span className="truncate">
+              {line.commodity ?? "Cargo"}
+              {line.quantity_text ? ` — ${line.quantity_text}` : ""}
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-card-border bg-neutral-bg text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+              Manual
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-medium uppercase tracking-wide",
+                derived.status === "active"
+                  ? "bg-mint-dim text-mint-deep border-mint"
+                  : "bg-neutral-bg text-ink-muted border-card-border"
+              )}
+            >
+              {derived.status}
+            </span>
+          </div>
+          <div className="mt-0.5 text-xs text-ink-muted truncate">
+            {line.certificate_number ? (
+              <>Cert {line.certificate_number}</>
+            ) : (
+              <>No cert reference</>
+            )}
+            {line.buyer_reference && <> · Buyer: {line.buyer_reference}</>}
+            {line.referenced_supplier_invoice && (
+              <> · Linked invoice: {line.referenced_supplier_invoice}</>
+            )}
+          </div>
+          {line.notes && (
+            <div className="mt-1 text-xs text-ink-dim italic">
+              {line.notes}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm("Remove this manual entry?")) onRemove();
+          }}
+          className="text-ink-muted hover:text-danger p-1 rounded"
+          aria-label="Remove manual entry"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <Stat
+          label="Insured value"
+          value={`${line.insured_value_currency} ${line.insured_value_amount.toLocaleString()}`}
+        />
+        <Stat label="Inception" value={formatShortDate(line.inception_date)} />
+        <Stat
+          label="Days remaining"
+          value={`${derived.days_remaining} / 60`}
+          hint={`${derived.days_used} used`}
+        />
+        <Stat label="Expires" value={formatShortDate(derived.expires_at)} />
+        <Stat
+          label="Est. accrued"
+          value={
+            insuranceRate != null
+              ? `${line.insured_value_currency} ${derived.estimated_total_accrued.toFixed(2)}`
+              : "—"
+          }
+          hint={
+            insuranceRate != null
+              ? `at ${insuranceRate}% / 60d`
+              : "no insurance rate"
+          }
+        />
+      </div>
+    </li>
   );
 }
 

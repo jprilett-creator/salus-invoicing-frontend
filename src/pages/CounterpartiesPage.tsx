@@ -9,8 +9,15 @@ import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { NeutralBadge } from "../components/ui/StatusBadge";
 import { PageHeader } from "../components/PageHeader";
-import { GmvBarChart } from "../components/GmvBarChart";
+import { RevenueChart, RevenueChartLegend } from "../components/RevenueChart";
 import { formatShortDate, formatUsd, previousMonthLabel } from "../lib/format";
+import {
+  REVENUE_BY_MONTH,
+  TOTAL_FEES_USD,
+  TOTAL_PLATFORM_VOLUME_USD,
+  TOTAL_REVENUE_USD,
+  TOTAL_SUBSCRIPTIONS_USD,
+} from "../lib/dashboardConstants";
 import { cn } from "../lib/cn";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -89,71 +96,53 @@ export function CounterpartiesPage() {
         )}
 
         {/* Dashboard panels */}
-        {dashboard && (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricCard
-                label="GMV this month"
-                value={formatUsd(dashboard.gmv_this_month.amount_usd)}
-                supporting={
-                  <>
-                    <DeltaSpan delta={dashboard.gmv_this_month.delta_pct_vs_last_month} />
-                    {dashboard.gmv_this_month.batch_count > 0 && (
-                      <>
-                        {" · "}
-                        {dashboard.gmv_this_month.batch_count} batches
-                      </>
-                    )}
-                  </>
-                }
-              />
-              <MetricCard
-                label="Invoiced this month"
-                value={formatUsd(dashboard.invoiced_this_month.amount_usd)}
-                supporting={
-                  dashboard.invoiced_this_month.invoice_count === 0
-                    ? "No invoices yet"
-                    : `${dashboard.invoiced_this_month.invoice_count} invoice${
-                        dashboard.invoiced_this_month.invoice_count === 1 ? "" : "s"
-                      }`
-                }
-              />
-              <MetricCard
-                label="Outstanding to invoice"
-                value={formatUsd(dashboard.outstanding_to_invoice.amount_usd)}
-                supporting={
-                  dashboard.outstanding_to_invoice.item_count === 0
-                    ? "Nothing pending"
-                    : `${dashboard.outstanding_to_invoice.item_count} item${
-                        dashboard.outstanding_to_invoice.item_count === 1 ? "" : "s"
-                      } pending`
-                }
-              />
-              <MetricCard
-                label="Subscriptions due this month"
-                value={formatUsd(dashboard.subscriptions_due_this_month.amount_usd)}
-                supporting={
-                  dashboard.subscriptions_due_this_month.subscription_count === 0
-                    ? "None due"
-                    : `${dashboard.subscriptions_due_this_month.subscription_count} due`
-                }
-                href="/subscriptions"
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MetricCard
+            label="Total revenue"
+            value={formatUsd(TOTAL_REVENUE_USD)}
+            supporting="Subscriptions + fees, May 2025 to date"
+          />
+          <MetricCard
+            label="Subscriptions to date"
+            value={formatUsd(TOTAL_SUBSCRIPTIONS_USD)}
+            supporting="2 invoices issued"
+            href="/subscriptions"
+          />
+          <MetricCard
+            label="Fees to date"
+            value={formatUsd(TOTAL_FEES_USD)}
+            supporting="Transaction + insurance admin"
+          />
+          <MetricCard
+            label="Platform volume"
+            value={formatUsd(TOTAL_PLATFORM_VOLUME_USD)}
+            supporting="Financing + insurance GMV"
+          />
+        </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-              <div className="bg-white border border-card-border rounded-lg p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+          <div className="bg-white border border-card-border rounded-lg p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
                 <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-                  GMV last 6 months
+                  Revenue by month
                 </div>
-                <div className="mt-3">
-                  <GmvBarChart data={dashboard.gmv_last_six_months} />
+                <div className="mt-1 text-xs text-ink-muted">
+                  May 2025 – May 2026
                 </div>
               </div>
-              <div className="bg-white border border-card-border rounded-lg p-6">
-                <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-                  Active counterparties
-                </div>
+              <RevenueChartLegend />
+            </div>
+            <div className="mt-3">
+              <RevenueChart data={REVENUE_BY_MONTH} />
+            </div>
+          </div>
+          <div className="bg-white border border-card-border rounded-lg p-6">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+              Active counterparties
+            </div>
+            {dashboard ? (
+              <>
                 <div className="mt-3 text-3xl font-semibold text-ink tabular-nums">
                   {dashboard.counterparties_summary.total}
                 </div>
@@ -162,10 +151,12 @@ export function CounterpartiesPage() {
                     .map(([k, v]) => `${v} ${ROLE_LABEL[k] ?? k}${v === 1 ? "" : "s"}`)
                     .join(" · ") || "—"}
                 </div>
-              </div>
-            </div>
-          </>
-        )}
+              </>
+            ) : (
+              <div className="mt-3 text-sm text-ink-muted">—</div>
+            )}
+          </div>
+        </div>
 
         {/* Counterparty list */}
         <div className="flex items-end justify-between gap-6 flex-wrap">
@@ -303,17 +294,6 @@ function MetricCard({
     );
   }
   return inner;
-}
-
-function DeltaSpan({ delta }: { delta: number }) {
-  if (delta === 0) return <span className="text-ink-muted">no change</span>;
-  const positive = delta > 0;
-  return (
-    <span className={cn("font-medium", positive ? "text-mint-deep" : "text-danger")}>
-      {positive ? "↑" : "↓"}
-      {Math.abs(delta).toFixed(1)}% vs last month
-    </span>
-  );
 }
 
 function CounterpartyTable({ rows }: { rows: CounterpartySummary[] }) {
