@@ -133,6 +133,52 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   return data as T;
 }
 
+async function requestPdf(path: string, body: unknown): Promise<Blob> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const token = getStoredToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new ApiError(
+      e instanceof Error ? e.message : "Network error",
+      0,
+      null
+    );
+  }
+
+  if (res.status === 401 && onUnauthorized) onUnauthorized();
+
+  if (!res.ok) {
+    const text = await res.text();
+    let data: unknown = null;
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+    }
+    const msg =
+      (data && typeof data === "object" && "error" in data
+        ? String((data as { error: unknown }).error)
+        : null) ??
+      (typeof data === "string" ? data : null) ??
+      `Request failed (${res.status})`;
+    throw new ApiError(msg, res.status, data);
+  }
+
+  return res.blob();
+}
+
 export const api = {
   baseUrl: API_BASE_URL,
 
@@ -258,51 +304,16 @@ export const api = {
     off_blotter: Batch[];
     period_str: string;
     manual_adjustments: ManualAdjustment[];
-  }): Promise<Blob> => {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    const token = getStoredToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+  }): Promise<Blob> => requestPdf("/api/invoicing/preview-pdf", input),
 
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE_URL}/api/invoicing/preview-pdf`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(input),
-      });
-    } catch (e) {
-      throw new ApiError(
-        e instanceof Error ? e.message : "Network error",
-        0,
-        null
-      );
-    }
-
-    if (res.status === 401 && onUnauthorized) onUnauthorized();
-
-    if (!res.ok) {
-      const text = await res.text();
-      let data: unknown = null;
-      if (text) {
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = text;
-        }
-      }
-      const msg =
-        (data && typeof data === "object" && "error" in data
-          ? String((data as { error: unknown }).error)
-          : null) ??
-        (typeof data === "string" ? data : null) ??
-        `Request failed (${res.status})`;
-      throw new ApiError(msg, res.status, data);
-    }
-
-    return res.blob();
-  },
+  generateSubscriptionProforma: (
+    counterparty_id: number,
+    period_str: string
+  ): Promise<Blob> =>
+    requestPdf("/api/subscriptions/generate-proforma", {
+      counterparty_id,
+      period_str,
+    }),
 
   ledgerRecent: (limit = 50) =>
     request<LedgerEntry[]>("/api/ledger/recent", { query: { limit } }),

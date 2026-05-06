@@ -1,19 +1,37 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { Download, ExternalLink } from "lucide-react";
+import { api, ApiError } from "../lib/api";
 import type { GenerateAllDueResponse, SubscriptionPeriod } from "../lib/types";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toaster";
+import { PdfPreviewModal } from "../components/PdfPreviewModal";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { formatShortDate, formatUsd } from "../lib/format";
 import { cn } from "../lib/cn";
+
+const XERO_VIEW_BASE =
+  "https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=";
 
 export function SubscriptionsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+
+  // Proforma preview modal state for a single Due row.
+  const [proforma, setProforma] = useState<{
+    row: SubscriptionPeriod;
+    blob: Blob | null;
+    loading: boolean;
+    error: string | null;
+    syncing: boolean;
+  } | null>(null);
+
+  // View-pushed modal state.
+  const [viewing, setViewing] = useState<SubscriptionPeriod | null>(null);
 
   const dueQuery = useQuery({
     queryKey: ["subscriptions-due"],
@@ -23,29 +41,58 @@ export function SubscriptionsPage() {
   const rows = dueQuery.data ?? [];
   const dueRows = useMemo(() => rows.filter((r) => r.status === "due"), [rows]);
 
-  const generateOne = useMutation({
-    mutationFn: ({ counterparty_id, period_start }: { counterparty_id: number; period_start: string }) =>
-      api.generateSubscriptionDraft(counterparty_id, period_start),
-    onSuccess: (data) => {
-      if (data.status === "draft_created") {
-        toast(
-          data.detail
-            ? `Draft generated. ${data.detail}`
-            : `Draft generated for ${data.invoice_number}`
-        );
-      } else if (data.status === "pushed_to_xero") {
-        toast(`Pushed to Xero as DRAFT (${data.invoice_number})`);
-      } else if (data.status === "skipped") {
-        toast(data.detail ?? "Already drafted", "error");
+  const openProforma = async (row: SubscriptionPeriod) => {
+    setProforma({
+      row,
+      blob: null,
+      loading: true,
+      error: null,
+      syncing: false,
+    });
+    try {
+      const blob = await api.generateSubscriptionProforma(
+        row.counterparty_id,
+        row.period_start
+      );
+      setProforma((p) => (p && p.row === row ? { ...p, blob, loading: false } : p));
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Couldn't generate proforma";
+      setProforma((p) =>
+        p && p.row === row ? { ...p, error: msg, loading: false } : p
+      );
+    }
+  };
+
+  const approveProforma = async () => {
+    if (!proforma) return;
+    setProforma((p) => (p ? { ...p, syncing: true } : p));
+    try {
+      const result = await api.generateSubscriptionDraft(
+        proforma.row.counterparty_id,
+        proforma.row.period_start
+      );
+      if (result.status === "draft_created") {
+        toast(`Draft generated for ${result.invoice_number}`);
+      } else if (result.status === "pushed_to_xero") {
+        toast(`Pushed to Xero as DRAFT (${result.invoice_number})`);
+      } else if (result.status === "skipped") {
+        toast(result.detail ?? "Already drafted", "error");
       } else {
-        toast(data.detail ?? "Generation failed", "error");
+        toast(result.detail ?? "Sync failed", "error");
       }
       qc.invalidateQueries({ queryKey: ["subscriptions-due"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-    },
-    onError: (e: Error) => toast(e.message, "error"),
-    onSettled: () => setBusyId(null),
-  });
+      setProforma(null);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Sync failed", "error");
+      setProforma((p) => (p ? { ...p, syncing: false } : p));
+    }
+  };
 
   const generateAll = useMutation({
     mutationFn: () =>
@@ -71,7 +118,10 @@ export function SubscriptionsPage() {
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (e: Error) => toast(e.message, "error"),
-    onSettled: () => setBulkBusy(false),
+    onSettled: () => {
+      setBulkBusy(false);
+      setBulkConfirmOpen(false);
+    },
   });
 
   return (
@@ -93,12 +143,9 @@ export function SubscriptionsPage() {
           <Button
             disabled={dueRows.length === 0 || bulkBusy}
             loading={bulkBusy}
-            onClick={() => {
-              setBulkBusy(true);
-              generateAll.mutate();
-            }}
+            onClick={() => setBulkConfirmOpen(true)}
           >
-            Generate all due ({dueRows.length})
+            Generate &amp; push all ({dueRows.length})
           </Button>
         </div>
 
@@ -129,7 +176,6 @@ export function SubscriptionsPage() {
             <ul className="divide-y divide-card-border">
               {rows.map((row) => {
                 const id = `${row.counterparty_id}:${row.period_start}`;
-                const isBusy = busyId === id;
                 return (
                   <li
                     key={id}
@@ -155,22 +201,21 @@ export function SubscriptionsPage() {
                       {row.status === "due" ? (
                         <Button
                           size="sm"
-                          loading={isBusy}
-                          disabled={isBusy || bulkBusy}
-                          onClick={() => {
-                            setBusyId(id);
-                            generateOne.mutate({
-                              counterparty_id: row.counterparty_id,
-                              period_start: row.period_start,
-                            });
-                          }}
+                          disabled={bulkBusy}
+                          onClick={() => openProforma(row)}
                         >
-                          Generate draft
+                          Generate proforma
                         </Button>
                       ) : row.status === "draft_created" ? (
                         <span className="text-xs text-ink-muted">Already drafted</span>
                       ) : row.status === "pushed_to_xero" ? (
-                        <span className="text-xs text-ink-muted">View invoice</span>
+                        <button
+                          type="button"
+                          className="text-xs text-mint-deep hover:underline"
+                          onClick={() => setViewing(row)}
+                        >
+                          View invoice
+                        </button>
                       ) : (
                         <span className="text-xs text-ink-muted">Paid</span>
                       )}
@@ -182,7 +227,196 @@ export function SubscriptionsPage() {
           </div>
         )}
       </div>
+
+      {proforma && (
+        <PdfPreviewModal
+          title={`Proforma — ${proforma.row.counterparty_short_name}`}
+          subtitle={`${proforma.row.period_label} · ${formatUsd(
+            proforma.row.amount_usd
+          )}`}
+          blob={proforma.blob}
+          loading={proforma.loading}
+          error={proforma.error}
+          onClose={() => {
+            if (!proforma.syncing) setProforma(null);
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+                onClick={() => setProforma(null)}
+                disabled={proforma.syncing}
+              >
+                Cancel
+              </button>
+              <Button
+                onClick={approveProforma}
+                loading={proforma.syncing}
+                disabled={proforma.loading || !!proforma.error || proforma.syncing}
+              >
+                Approve &amp; sync to Xero
+              </Button>
+            </>
+          }
+        />
+      )}
+
+      {viewing && (
+        <PushedInvoiceModal
+          row={viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
+
+      {bulkConfirmOpen && (
+        <ConfirmDialog
+          title={`Generate & push all ${dueRows.length}?`}
+          body={
+            <p>
+              This will skip per-invoice preview and push every due
+              subscription straight to Xero as a draft. Are you sure?
+            </p>
+          }
+          confirmLabel="Generate & push"
+          busy={bulkBusy}
+          onCancel={() => setBulkConfirmOpen(false)}
+          onConfirm={() => {
+            setBulkBusy(true);
+            generateAll.mutate();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function PushedInvoiceModal({
+  row,
+  onClose,
+}: {
+  row: SubscriptionPeriod;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const blob = await api.generateSubscriptionProforma(
+        row.counterparty_id,
+        row.period_start
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const slug = row.counterparty_short_name.toLowerCase().replace(/\s+/g, "-");
+      a.download = `${slug}-${row.period_start}-subscription.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Download failed", "error");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const xeroUrl = row.xero_invoice_id
+    ? `${XERO_VIEW_BASE}${row.xero_invoice_id}`
+    : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-card-border rounded-lg p-6 w-full max-w-md mx-4 animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-semibold text-ink">
+          {row.counterparty_short_name}
+        </h3>
+        <p className="mt-0.5 text-xs text-ink-muted">
+          {row.counterparty_legal_name}
+        </p>
+
+        <dl className="mt-5 grid grid-cols-[7rem_1fr] gap-y-3 text-sm">
+          <dt className="text-xs uppercase tracking-wide text-ink-muted">
+            Invoice
+          </dt>
+          <dd className="text-ink font-mono">
+            {row.draft_invoice_id ?? "—"}
+          </dd>
+
+          <dt className="text-xs uppercase tracking-wide text-ink-muted">
+            Total
+          </dt>
+          <dd className="text-ink tabular-nums">
+            {formatUsd(row.amount_usd)}
+          </dd>
+
+          <dt className="text-xs uppercase tracking-wide text-ink-muted">
+            Period
+          </dt>
+          <dd className="text-ink">{row.period_label}</dd>
+
+          <dt className="text-xs uppercase tracking-wide text-ink-muted">
+            Status
+          </dt>
+          <dd>
+            <SubscriptionStatusBadge status={row.status} />
+          </dd>
+
+          <dt className="text-xs uppercase tracking-wide text-ink-muted">
+            Xero ID
+          </dt>
+          <dd className="text-ink-dim font-mono text-xs break-all">
+            {row.xero_invoice_id ?? "—"}
+          </dd>
+        </dl>
+
+        <div className="mt-6 flex items-center justify-end gap-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={downloading}
+            onClick={downloadPdf}
+          >
+            <Download className="h-3.5 w-3.5" /> Download PDF
+          </Button>
+          {xeroUrl ? (
+            <a
+              href={xeroUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-mint text-white hover:bg-mint-hover"
+            >
+              Open in Xero <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          ) : (
+            <span className="text-xs text-ink-muted">No Xero link yet</span>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="mt-4 text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+    </div>
   );
 }
 
