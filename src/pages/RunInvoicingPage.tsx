@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Info,
+  X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import type { Batch, InvoiceDraft, PushResult } from "../lib/types";
@@ -275,6 +276,9 @@ export function RunInvoicingPage() {
           xeroPending={xeroPending}
           onPush={() => pushMut.mutate()}
           onBack={() => setStage("setup")}
+          batches={batches}
+          offBlotter={offBlotter}
+          periodStr={periodStr}
         />
       )}
 
@@ -579,6 +583,9 @@ function ReviewView(props: {
   xeroPending: boolean;
   onPush: () => void;
   onBack: () => void;
+  batches: Batch[];
+  offBlotter: Batch[];
+  periodStr: string;
 }) {
   const {
     drafts,
@@ -590,7 +597,48 @@ function ReviewView(props: {
     xeroPending,
     onPush,
     onBack,
+    batches,
+    offBlotter,
+    periodStr,
   } = props;
+  const { toast } = useToast();
+  const [previewFor, setPreviewFor] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  const previewMut = useMutation({
+    mutationFn: async (draft: InvoiceDraft) => {
+      const blob = await api.previewInvoicingPdf({
+        draft,
+        batches,
+        off_blotter: offBlotter,
+        period_str: periodStr,
+      });
+      return URL.createObjectURL(blob);
+    },
+    onSuccess: (url, draft) => {
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+      setPreviewFor(draft.invoice_number);
+    },
+    onError: (e: Error) => {
+      toast(e.message, "error");
+      setPreviewFor(null);
+    },
+  });
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPreviewFor(null);
+  };
 
   if (drafts.length === 0) {
     return (
@@ -662,6 +710,11 @@ function ReviewView(props: {
               draft={d}
               approved={approved.has(d.invoice_number)}
               onToggle={(on) => toggle(d.invoice_number, on)}
+              onPreview={() => previewMut.mutate(d)}
+              previewLoading={
+                previewMut.isPending &&
+                previewMut.variables?.invoice_number === d.invoice_number
+              }
             />
           </li>
         ))}
@@ -688,6 +741,71 @@ function ReviewView(props: {
             ? `Record ${approved.size} invoice${approved.size === 1 ? "" : "s"} (Xero pending)`
             : `Push ${approved.size} invoice${approved.size === 1 ? "" : "s"} to Xero as ${pushAsDraft ? "DRAFT" : "AUTHORISED"}`}
         </Button>
+      </div>
+
+      {previewFor && previewUrl && (
+        <PdfPreviewModal
+          title={`Proforma · ${previewFor}`}
+          url={previewUrl}
+          onClose={closePreview}
+        />
+      )}
+    </div>
+  );
+}
+
+function PdfPreviewModal({
+  title,
+  url,
+  onClose,
+}: {
+  title: string;
+  url: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-card-border rounded-lg w-full max-w-5xl h-[90vh] flex flex-col animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-3 border-b border-card-border flex items-center justify-between gap-4">
+          <h3 className="text-sm font-medium text-ink truncate">{title}</h3>
+          <div className="flex items-center gap-3 shrink-0">
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+            >
+              Open in new tab
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-ink-muted hover:text-ink"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <iframe
+          src={url}
+          title={title}
+          className="flex-1 w-full bg-page rounded-b-lg"
+        />
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Eye } from "lucide-react";
 import { Checkbox } from "./ui/Checkbox";
 import { cn } from "../lib/cn";
 import type { InvoiceDraft } from "../lib/types";
@@ -6,9 +7,17 @@ interface Props {
   draft: InvoiceDraft;
   approved: boolean;
   onToggle: (approved: boolean) => void;
+  onPreview?: () => void;
+  previewLoading?: boolean;
 }
 
-export function InvoiceDraftCard({ draft, approved, onToggle }: Props) {
+export function InvoiceDraftCard({
+  draft,
+  approved,
+  onToggle,
+  onPreview,
+  previewLoading,
+}: Props) {
   const subscription = draft.subscription;
   const lineCount =
     (subscription ? subscription.line_items.length : 0) + draft.fee_lines.length;
@@ -95,17 +104,30 @@ export function InvoiceDraftCard({ draft, approved, onToggle }: Props) {
         </table>
       </div>
 
-      <footer className="mt-5 pt-4 border-t border-card-border flex items-center justify-between gap-4">
+      <footer className="mt-5 pt-4 border-t border-card-border flex items-center justify-between gap-4 flex-wrap">
         <Checkbox
           id={`approve-${draft.invoice_number}`}
           checked={approved}
           onChange={(e) => onToggle(e.target.checked)}
           label="Approve this invoice"
         />
-        <span className="text-xs text-ink-muted">
-          {draft.counterparty.payment_terms_days}-day payment terms ·{" "}
-          {draft.counterparty.currency}
-        </span>
+        <div className="flex items-center gap-4">
+          {onPreview && (
+            <button
+              type="button"
+              onClick={onPreview}
+              disabled={previewLoading}
+              className="inline-flex items-center gap-1.5 text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <Eye className="h-3.5 w-3.5" strokeWidth={2} />
+              {previewLoading ? "Rendering…" : "Preview proforma"}
+            </button>
+          )}
+          <span className="text-xs text-ink-muted">
+            {draft.counterparty.payment_terms_days}-day payment terms ·{" "}
+            {draft.counterparty.currency}
+          </span>
+        </div>
       </footer>
     </div>
   );
