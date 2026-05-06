@@ -7,6 +7,7 @@ import type {
   AuditEntry,
   CounterpartyDetail,
   CounterpartyPatch,
+  InsuranceCertExtraction,
   KycChecks,
   OffBlotterLine,
 } from "../lib/types";
@@ -16,6 +17,7 @@ import { Label } from "../components/ui/Label";
 import { Textarea } from "../components/ui/Textarea";
 import { Checkbox } from "../components/ui/Checkbox";
 import { Spinner } from "../components/ui/Spinner";
+import { DropZone } from "../components/DropZone";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../components/ui/Toaster";
 import { formatDateTime, formatShortDate } from "../lib/format";
@@ -556,6 +558,7 @@ function PlaceholderTab({ title }: { title: string }) {
 function InsuranceTab({ cp, cpId }: { cp: CounterpartyDetail; cpId: number }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [addOpen, setAddOpen] = useState(false);
   const apiBase =
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
     "https://salus-invoicing.onrender.com";
@@ -605,7 +608,7 @@ function InsuranceTab({ cp, cpId }: { cp: CounterpartyDetail; cpId: number }) {
               underlying invoice is funded.
             </p>
           </div>
-          <Button variant="secondary" size="sm" disabled>
+          <Button variant="secondary" size="sm" onClick={() => setAddOpen(true)}>
             + Add cert
           </Button>
         </div>
@@ -660,7 +663,328 @@ function InsuranceTab({ cp, cpId }: { cp: CounterpartyDetail; cpId: number }) {
           historical
         />
       )}
+
+      {addOpen && (
+        <AddCertDialog
+          cp={cp}
+          onClose={() => setAddOpen(false)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["off-blotter", cpId] });
+            setAddOpen(false);
+            toast("Cert added");
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type DialogStage = "drop" | "extracting" | "form";
+
+interface CertFormState {
+  certificate_number: string;
+  inception_date: string;
+  insured_value_amount: string;
+  insured_value_currency: string;
+  commodity: string;
+  quantity_text: string;
+  buyer_reference: string;
+  po_reference: string;
+  referenced_supplier_invoice: string;
+}
+
+const EMPTY_CERT_FORM: CertFormState = {
+  certificate_number: "",
+  inception_date: "",
+  insured_value_amount: "",
+  insured_value_currency: "USD",
+  commodity: "",
+  quantity_text: "",
+  buyer_reference: "",
+  po_reference: "",
+  referenced_supplier_invoice: "",
+};
+
+function AddCertDialog({
+  cp,
+  onClose,
+  onSaved,
+}: {
+  cp: CounterpartyDetail;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [stage, setStage] = useState<DialogStage>("drop");
+  const [pdf, setPdf] = useState<File | null>(null);
+  const [extraction, setExtraction] = useState<InsuranceCertExtraction | null>(null);
+  const [supplierMismatch, setSupplierMismatch] = useState<string | null>(null);
+  const [form, setForm] = useState<CertFormState>({
+    ...EMPTY_CERT_FORM,
+    insured_value_currency: cp.currency || "USD",
+  });
+
+  const setField = <K extends keyof CertFormState>(k: K, v: CertFormState[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  const extractMut = useMutation({
+    mutationFn: (file: File) => api.extractOffBlotterCert(file),
+    onSuccess: (res) => {
+      const ef = res.extracted_fields;
+      setExtraction(ef);
+      // Pre-fill form from extracted fields where present.
+      setForm((prev) => ({
+        ...prev,
+        certificate_number: ef.certificate_number ?? prev.certificate_number,
+        inception_date: ef.inception_date ?? prev.inception_date,
+        insured_value_amount:
+          ef.insured_value_amount != null
+            ? String(ef.insured_value_amount)
+            : prev.insured_value_amount,
+        insured_value_currency:
+          ef.insured_value_currency ?? prev.insured_value_currency,
+        commodity: ef.commodity ?? prev.commodity,
+        quantity_text: ef.quantity ?? prev.quantity_text,
+        buyer_reference: ef.buyer_legal_name ?? prev.buyer_reference,
+        po_reference: ef.po_reference ?? prev.po_reference,
+        referenced_supplier_invoice:
+          ef.referenced_supplier_invoice ?? prev.referenced_supplier_invoice,
+      }));
+      // Sanity check: extracted supplier should mention the current cp's name.
+      const supplier = (ef.supplier_legal_name ?? "").toLowerCase().trim();
+      const candidates = res.match.candidates ?? [];
+      if (
+        supplier &&
+        !candidates.some((c) => c.id === cp.id) &&
+        !cp.name.toLowerCase().includes(supplier) &&
+        !supplier.includes(cp.short_name.toLowerCase())
+      ) {
+        setSupplierMismatch(ef.supplier_legal_name ?? supplier);
+      } else {
+        setSupplierMismatch(null);
+      }
+      if (!res.extraction_available) {
+        toast(
+          "Extraction is not available (no API key). You can still enter values manually.",
+          "error"
+        );
+      } else if (!res.extracted) {
+        toast(
+          res.error ?? "Couldn't extract — please key the values in.",
+          "error"
+        );
+      }
+      setStage("form");
+    },
+    onError: (e: Error) => {
+      toast(e.message, "error");
+      setStage("drop");
+    },
+  });
+
+  const createMut = useMutation({
+    mutationFn: () =>
+      api.createOffBlotterLine({
+        counterparty_id: cp.id,
+        certificate_number: form.certificate_number || null,
+        inception_date: form.inception_date,
+        buyer_reference: form.buyer_reference || null,
+        commodity: form.commodity || null,
+        quantity_text: form.quantity_text || null,
+        insured_value_amount: form.insured_value_amount,
+        insured_value_currency: form.insured_value_currency,
+        po_reference: form.po_reference || null,
+        referenced_supplier_invoice: form.referenced_supplier_invoice || null,
+        cert_extraction_json: extraction ? JSON.stringify(extraction) : null,
+        pdf,
+      }),
+    onSuccess: () => onSaved(),
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const onPdf = (file: File) => {
+    setPdf(file);
+    setStage("extracting");
+    extractMut.mutate(file);
+  };
+
+  const onManualEntry = () => {
+    setPdf(null);
+    setExtraction(null);
+    setSupplierMismatch(null);
+    setStage("form");
+  };
+
+  const submitDisabled =
+    !form.inception_date ||
+    !form.insured_value_amount ||
+    Number.parseFloat(form.insured_value_amount) <= 0 ||
+    !form.insured_value_currency;
+
+  return (
+    <ModalShell title={`Add insurance cert — ${cp.short_name}`} onClose={onClose}>
+      {stage === "drop" && (
+        <div className="space-y-4">
+          <p className="text-sm text-ink-dim">
+            Drop the certificate PDF below to auto-extract the fields, or skip
+            to enter values manually.
+          </p>
+          <DropZone
+            accept="application/pdf,.pdf"
+            onFile={onPdf}
+            primaryText="Drop the certificate PDF, or click to browse"
+            secondaryText="Cargo certificate of insurance from AJG / underwriter"
+          />
+          <div className="flex items-center justify-between pt-1">
+            <button
+              type="button"
+              onClick={onManualEntry}
+              className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+            >
+              Skip and enter manually →
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {stage === "extracting" && (
+        <div className="flex flex-col items-center gap-3 py-10">
+          <Spinner />
+          <p className="text-sm text-ink-dim">Reading the certificate…</p>
+          <p className="text-xs text-ink-muted">
+            Usually 5–15 seconds.
+          </p>
+        </div>
+      )}
+
+      {stage === "form" && (
+        <div className="space-y-4">
+          {pdf && (
+            <div className="flex items-center gap-2 text-xs text-ink-muted">
+              <FileText className="h-3.5 w-3.5" />
+              <span className="truncate">{pdf.name}</span>
+            </div>
+          )}
+
+          {supplierMismatch && (
+            <div className="bg-warn-bg border border-warn/40 text-warn-deep rounded-md px-3 py-2 text-xs">
+              Heads-up: extracted supplier <strong>{supplierMismatch}</strong>{" "}
+              doesn&apos;t obviously match{" "}
+              <strong>{cp.short_name}</strong>. Confirm before saving.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <Label>Certificate number</Label>
+              <Input
+                value={form.certificate_number}
+                onChange={(e) => setField("certificate_number", e.target.value)}
+                placeholder="e.g. AJG/2026/00123"
+              />
+            </div>
+            <div>
+              <Label>Inception date *</Label>
+              <Input
+                type="date"
+                value={form.inception_date}
+                onChange={(e) => setField("inception_date", e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Insured value *</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.insured_value_amount}
+                  onChange={(e) => setField("insured_value_amount", e.target.value)}
+                  placeholder="0.00"
+                  className="flex-1"
+                />
+                <Input
+                  value={form.insured_value_currency}
+                  onChange={(e) =>
+                    setField(
+                      "insured_value_currency",
+                      e.target.value.toUpperCase().slice(0, 3)
+                    )
+                  }
+                  placeholder="USD"
+                  className="w-20"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Commodity</Label>
+              <Input
+                value={form.commodity}
+                onChange={(e) => setField("commodity", e.target.value)}
+                placeholder="e.g. Tantalum Pentoxide"
+              />
+            </div>
+            <div>
+              <Label>Quantity</Label>
+              <Input
+                value={form.quantity_text}
+                onChange={(e) => setField("quantity_text", e.target.value)}
+                placeholder="e.g. 500kg"
+              />
+            </div>
+            <div>
+              <Label>PO reference</Label>
+              <Input
+                value={form.po_reference}
+                onChange={(e) => setField("po_reference", e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Supplier invoice ref</Label>
+              <Input
+                value={form.referenced_supplier_invoice}
+                onChange={(e) =>
+                  setField("referenced_supplier_invoice", e.target.value)
+                }
+                placeholder="e.g. INV/2026/00027"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Buyer reference</Label>
+              <Input
+                value={form.buyer_reference}
+                onChange={(e) => setField("buyer_reference", e.target.value)}
+                placeholder="Buyer name as printed on cert (text only)"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+            >
+              Cancel
+            </button>
+            <Button
+              onClick={() => createMut.mutate()}
+              disabled={submitDisabled}
+              loading={createMut.isPending}
+            >
+              Save cert
+            </Button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 }
 
