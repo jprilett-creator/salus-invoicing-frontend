@@ -10,15 +10,17 @@ import { Spinner } from "../components/ui/Spinner";
 import { NeutralBadge } from "../components/ui/StatusBadge";
 import { PageHeader } from "../components/PageHeader";
 import {
+  FeesChart,
+  FeesChartLegend,
   PlatformVolumeChart,
   PlatformVolumeChartLegend,
-  RevenueChart,
-  RevenueChartLegend,
+  SubscriptionsChart,
 } from "../components/RevenueChart";
 import { formatShortDate, formatUsd, previousMonthLabel } from "../lib/format";
 import {
+  FEES_BY_MONTH,
   PLATFORM_VOLUME_BY_MONTH,
-  REVENUE_BY_MONTH,
+  SUBSCRIPTIONS_BY_MONTH,
   TOTAL_FEES_USD,
   TOTAL_PLATFORM_VOLUME_USD,
   TOTAL_REVENUE_USD,
@@ -126,7 +128,7 @@ export function CounterpartiesPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[3fr_1fr] gap-4">
           <div className="bg-white border border-card-border rounded-lg p-6">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
@@ -144,41 +146,58 @@ export function CounterpartiesPage() {
             </div>
           </div>
           <div className="bg-white border border-card-border rounded-lg p-6">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-                  Revenue by month
-                </div>
-                <div className="mt-1 text-xs text-ink-muted">
-                  May 2025 – May 2026 · subscriptions + fees
-                </div>
-              </div>
-              <RevenueChartLegend />
+            <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+              Active counterparties
             </div>
-            <div className="mt-3">
-              <RevenueChart data={REVENUE_BY_MONTH} />
-            </div>
+            {dashboard ? (
+              <>
+                <div className="mt-3 text-3xl font-semibold text-ink tabular-nums">
+                  {dashboard.counterparties_summary.total}
+                </div>
+                <div className="mt-2 text-xs text-ink-muted">
+                  {Object.entries(dashboard.counterparties_summary.by_role)
+                    .map(([k, v]) => `${v} ${ROLE_LABEL[k] ?? k}${v === 1 ? "" : "s"}`)
+                    .join(" · ") || "—"}
+                </div>
+              </>
+            ) : (
+              <div className="mt-3 text-sm text-ink-muted">—</div>
+            )}
           </div>
         </div>
 
-        <div className="bg-white border border-card-border rounded-lg p-6">
-          <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-            Active counterparties
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white border border-card-border rounded-lg p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+                  Subscription revenue by month
+                </div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  May 2025 – May 2026
+                </div>
+              </div>
+            </div>
+            <div className="mt-3">
+              <SubscriptionsChart data={SUBSCRIPTIONS_BY_MONTH} />
+            </div>
           </div>
-          {dashboard ? (
-            <>
-              <div className="mt-3 text-3xl font-semibold text-ink tabular-nums">
-                {dashboard.counterparties_summary.total}
+          <div className="bg-white border border-card-border rounded-lg p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+                  Fees by month
+                </div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  May 2025 – May 2026 · transaction + insurance admin
+                </div>
               </div>
-              <div className="mt-2 text-xs text-ink-muted">
-                {Object.entries(dashboard.counterparties_summary.by_role)
-                  .map(([k, v]) => `${v} ${ROLE_LABEL[k] ?? k}${v === 1 ? "" : "s"}`)
-                  .join(" · ") || "—"}
-              </div>
-            </>
-          ) : (
-            <div className="mt-3 text-sm text-ink-muted">—</div>
-          )}
+              <FeesChartLegend />
+            </div>
+            <div className="mt-3">
+              <FeesChart data={FEES_BY_MONTH} />
+            </div>
+          </div>
         </div>
 
         {/* Counterparty list */}

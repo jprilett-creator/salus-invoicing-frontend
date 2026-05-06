@@ -1,16 +1,21 @@
 // Hardcoded dashboard figures for the May 2025 - May 2026 window.
 // Frontend-only, until the backend dashboard pipeline catches up.
 
-export interface MonthlyRevenuePoint {
-  month: string; // "YYYY-MM"
-  subs_usd: number;
-  fees_usd: number;
-}
-
 export interface MonthlyPlatformVolumePoint {
   month: string;
   financing_usd: number;
   insurance_usd: number;
+}
+
+export interface MonthlySubscriptionPoint {
+  month: string;
+  subs_usd: number;
+}
+
+export interface MonthlyFeesPoint {
+  month: string;
+  transaction_usd: number;
+  insurance_admin_usd: number;
 }
 
 const WINDOW_MONTHS = [
@@ -35,12 +40,40 @@ export const SUBSCRIPTION_REVENUE: Record<string, number> = {
   "2026-05": 120000, // Second invoice, 6 May 2026
 };
 
-// Transaction + insurance admin fees billed in each month. Distributed across
-// active months so the cumulative total reconciles to the period figure.
-export const FEE_REVENUE: Record<string, number> = {
-  "2026-03": 1500,
-  "2026-04": 1300,
-  "2026-05": 1055,
+// Transaction fees billed per month. Placeholder distribution that
+// concentrates in April 2026 (the heavy financing month). Sums to $2,700.
+export const TRANSACTION_FEES: Record<string, number> = {
+  "2025-05": 35,
+  "2025-06": 30,
+  "2025-07": 50,
+  "2025-08": 60,
+  "2025-09": 70,
+  "2025-10": 75,
+  "2025-11": 80,
+  "2025-12": 85,
+  "2026-01": 90,
+  "2026-02": 100,
+  "2026-03": 115,
+  "2026-04": 1800,
+  "2026-05": 110,
+};
+
+// Insurance admin fees billed per month. Placeholder distribution that
+// concentrates in April 2026 alongside the insured shipment. Sums to $1,155.
+export const INSURANCE_ADMIN_FEES: Record<string, number> = {
+  "2025-05": 15,
+  "2025-06": 20,
+  "2025-07": 25,
+  "2025-08": 30,
+  "2025-09": 35,
+  "2025-10": 40,
+  "2025-11": 45,
+  "2025-12": 50,
+  "2026-01": 55,
+  "2026-02": 60,
+  "2026-03": 70,
+  "2026-04": 700,
+  "2026-05": 10,
 };
 
 // Hartree-via-PowerX financing GMV per month. Real spiky values.
@@ -69,11 +102,17 @@ export const POWERX_INSURANCE_GMV: Record<string, number> = {
   "2026-04": 287065,
 };
 
-export const REVENUE_BY_MONTH: MonthlyRevenuePoint[] = WINDOW_MONTHS.map(
-  (month) => ({
+export const SUBSCRIPTIONS_BY_MONTH: MonthlySubscriptionPoint[] =
+  WINDOW_MONTHS.map((month) => ({
     month,
     subs_usd: SUBSCRIPTION_REVENUE[month] ?? 0,
-    fees_usd: FEE_REVENUE[month] ?? 0,
+  }));
+
+export const FEES_BY_MONTH: MonthlyFeesPoint[] = WINDOW_MONTHS.map(
+  (month) => ({
+    month,
+    transaction_usd: TRANSACTION_FEES[month] ?? 0,
+    insurance_admin_usd: INSURANCE_ADMIN_FEES[month] ?? 0,
   })
 );
 

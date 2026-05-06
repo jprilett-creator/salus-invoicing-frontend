@@ -8,8 +8,9 @@ import {
   YAxis,
 } from "recharts";
 import type {
+  MonthlyFeesPoint,
   MonthlyPlatformVolumePoint,
-  MonthlyRevenuePoint,
+  MonthlySubscriptionPoint,
 } from "../lib/dashboardConstants";
 import { formatMonthShort, formatUsd } from "../lib/format";
 
@@ -72,7 +73,8 @@ function StackedBars<T extends { month: string }>({
               const n = Number(v);
               if (!Number.isFinite(n) || n === 0) return "";
               if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-              if (n >= 1000) return `$${Math.round(n / 1000)}k`;
+              if (n >= 10_000) return `$${Math.round(n / 1000)}k`;
+              if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
               return `$${n}`;
             }}
             width={56}
@@ -132,9 +134,13 @@ const PLATFORM_SERIES: SeriesDef[] = [
   { key: "insurance_usd", label: "Insurance GMV", color: MINT_DEEP },
 ];
 
-const REVENUE_SERIES: SeriesDef[] = [
+const SUBS_SERIES: SeriesDef[] = [
   { key: "subs_usd", label: "Subscriptions", color: MINT },
-  { key: "fees_usd", label: "Fees", color: MINT_DEEP },
+];
+
+const FEES_SERIES: SeriesDef[] = [
+  { key: "transaction_usd", label: "Transaction", color: MINT },
+  { key: "insurance_admin_usd", label: "Insurance admin", color: MINT_DEEP },
 ];
 
 export function PlatformVolumeChart({
@@ -151,16 +157,26 @@ export function PlatformVolumeChartLegend() {
   return <Legend series={PLATFORM_SERIES} />;
 }
 
-export function RevenueChart({
+export function SubscriptionsChart({
   data,
-  height = 220,
+  height = 200,
 }: {
-  data: MonthlyRevenuePoint[];
+  data: MonthlySubscriptionPoint[];
   height?: number;
 }) {
-  return <StackedBars data={data} series={REVENUE_SERIES} height={height} />;
+  return <StackedBars data={data} series={SUBS_SERIES} height={height} />;
 }
 
-export function RevenueChartLegend() {
-  return <Legend series={REVENUE_SERIES} />;
+export function FeesChart({
+  data,
+  height = 200,
+}: {
+  data: MonthlyFeesPoint[];
+  height?: number;
+}) {
+  return <StackedBars data={data} series={FEES_SERIES} height={height} />;
+}
+
+export function FeesChartLegend() {
+  return <Legend series={FEES_SERIES} />;
 }
