@@ -425,6 +425,12 @@ export interface HealthResponse {
   xero_configured: boolean;
 }
 
+export interface XeroHealthResponse {
+  ok: boolean;
+  tenant_id: string | null;
+  last_token_refresh_at: string | null;
+}
+
 export type InvoiceStatus =
   | "drafted"
   | "pushed_to_xero"

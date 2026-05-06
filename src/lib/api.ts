@@ -28,6 +28,7 @@ import type {
   PushResponse,
   SignatureStatus,
   SubscriptionPeriod,
+  XeroHealthResponse,
 } from "./types";
 
 const API_BASE_URL =
@@ -136,6 +137,8 @@ export const api = {
   baseUrl: API_BASE_URL,
 
   health: () => request<HealthResponse>("/api/health", { authenticated: false }),
+
+  xeroHealth: () => request<XeroHealthResponse>("/api/xero/health"),
 
   login: (username: string, password: string) =>
     request<LoginResponse>("/api/auth/login", {

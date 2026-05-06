@@ -26,6 +26,7 @@ import { DropZone } from "../components/DropZone";
 import { InvoiceDraftCard } from "../components/InvoiceDraftCard";
 import { useToast } from "../components/ui/Toaster";
 import { PageHeader } from "../components/PageHeader";
+import { XeroStatusIndicator } from "../components/XeroStatusIndicator";
 import { cn } from "../lib/cn";
 
 type Stage = "setup" | "review" | "pushing" | "done";
@@ -314,6 +315,7 @@ export function RunInvoicingPage() {
           { label: "Review", active: stageTab === "review" },
           { label: "Confirm", active: stageTab === "confirm" },
         ]}
+        right={<XeroStatusIndicator />}
       />
 
       <div className="px-10 py-8 space-y-8">
