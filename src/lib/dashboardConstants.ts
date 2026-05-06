@@ -40,40 +40,41 @@ export const SUBSCRIPTION_REVENUE: Record<string, number> = {
   "2026-05": 120000, // Second invoice, 6 May 2026
 };
 
-// Transaction fees billed per month. Placeholder distribution that
-// concentrates in April 2026 (the heavy financing month). Sums to $2,700.
+// Transaction fees billed per month. 0.2% × financing GMV for that month.
+// April 2026 includes 0.2% × $326,728 ($653) on financed deals plus
+// 0.2% × $287,065 ($574) on the Hartree off-blotter pair = $1,227.
 export const TRANSACTION_FEES: Record<string, number> = {
-  "2025-05": 35,
-  "2025-06": 30,
-  "2025-07": 50,
-  "2025-08": 60,
-  "2025-09": 70,
-  "2025-10": 75,
-  "2025-11": 80,
-  "2025-12": 85,
-  "2026-01": 90,
-  "2026-02": 100,
+  "2025-05": 141,
+  "2025-06": 70,
+  "2025-07": 157,
+  "2025-08": 142,
+  "2025-09": 206,
+  "2025-10": 132,
+  "2025-11": 60,
+  "2025-12": 65,
+  "2026-01": 131,
+  "2026-02": 81,
   "2026-03": 115,
-  "2026-04": 1800,
-  "2026-05": 110,
+  "2026-04": 1227,
+  "2026-05": 0,
 };
 
-// Insurance admin fees billed per month. Placeholder distribution that
-// concentrates in April 2026 alongside the insured shipment. Sums to $1,155.
+// Insurance admin fees billed per month. 0.4% × off-blotter insured value.
+// Only the April 2026 Hartree pair has insurance admin: 0.4% × $287,065.
 export const INSURANCE_ADMIN_FEES: Record<string, number> = {
-  "2025-05": 15,
-  "2025-06": 20,
-  "2025-07": 25,
-  "2025-08": 30,
-  "2025-09": 35,
-  "2025-10": 40,
-  "2025-11": 45,
-  "2025-12": 50,
-  "2026-01": 55,
-  "2026-02": 60,
-  "2026-03": 70,
-  "2026-04": 700,
-  "2026-05": 10,
+  "2025-05": 0,
+  "2025-06": 0,
+  "2025-07": 0,
+  "2025-08": 0,
+  "2025-09": 0,
+  "2025-10": 0,
+  "2025-11": 0,
+  "2025-12": 0,
+  "2026-01": 0,
+  "2026-02": 0,
+  "2026-03": 0,
+  "2026-04": 1148,
+  "2026-05": 0,
 };
 
 // Hartree-via-PowerX financing GMV per month. Real spiky values.
