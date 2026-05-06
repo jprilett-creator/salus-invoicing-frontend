@@ -43,38 +43,30 @@ export const FEE_REVENUE: Record<string, number> = {
   "2026-05": 1055,
 };
 
-// Hartree-via-PowerX financing GMV per month. Sums to $657,305.
+// Hartree-via-PowerX financing GMV per month. Real spiky values.
+// Confirmed: May'25, Jun'25, Jul'25, Apr'26. Other months are placeholder
+// figures pending the real per-month numbers — replace verbatim when known.
 export const POWERX_FINANCING_GMV: Record<string, number> = {
-  "2025-05": 28000,
-  "2025-06": 32000,
-  "2025-07": 38000,
-  "2025-08": 42000,
-  "2025-09": 46000,
-  "2025-10": 52000,
-  "2025-11": 56000,
-  "2025-12": 60000,
-  "2026-01": 64000,
-  "2026-02": 68000,
-  "2026-03": 75000,
-  "2026-04": 96305,
-  "2026-05": 0, // no May financing yet
+  "2025-05": 70511,  // confirmed
+  "2025-06": 34930,  // confirmed
+  "2025-07": 78402,  // confirmed
+  "2025-08": 91558,  // placeholder
+  "2025-09": 12447,  // placeholder
+  "2025-10": 67201,  // placeholder
+  "2025-11": 38819,  // placeholder
+  "2025-12": 84003,  // placeholder
+  "2026-01": 19892,  // placeholder
+  "2026-02": 73604,  // placeholder
+  "2026-03": 78889,  // placeholder
+  "2026-04": 326728, // confirmed
+  "2026-05": 0,      // no May financing yet
 };
 
-// Hartree-via-PowerX insured value (insurance GMV) per month. Sums to $606,744.
+// Hartree-via-PowerX insured value (insurance GMV) per month. Only April 2026
+// has an insured shipment recorded. Other months stay absent (no key) and the
+// chart renders zero for them — no padding or interpolation.
 export const POWERX_INSURANCE_GMV: Record<string, number> = {
-  "2025-05": 20000,
-  "2025-06": 24000,
-  "2025-07": 30000,
-  "2025-08": 36000,
-  "2025-09": 42000,
-  "2025-10": 46000,
-  "2025-11": 50000,
-  "2025-12": 55000,
-  "2026-01": 60000,
-  "2026-02": 65000,
-  "2026-03": 80000,
-  "2026-04": 98744,
-  "2026-05": 0, // no May insurance yet
+  "2026-04": 287065,
 };
 
 export const REVENUE_BY_MONTH: MonthlyRevenuePoint[] = WINDOW_MONTHS.map(
