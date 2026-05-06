@@ -14,7 +14,10 @@ import type {
   KycChecks,
   LedgerEntry,
   LoginResponse,
+  OffBlotterExtractResponse,
+  OffBlotterLine,
   ParseResponse,
+  PreviewPdfInput,
   PushResponse,
   SubscriptionPeriod,
 } from "./types";
@@ -252,4 +255,100 @@ export const api = {
     request<CounterpartySummary[]>("/api/counterparties", {
       query: { include_archived: "true" },
     }),
+
+  listOffBlotter: (cpId: number, includeHistory = true) =>
+    request<OffBlotterLine[]>(
+      `/api/counterparties/${cpId}/off-blotter`,
+      { query: { include_history: includeHistory ? "true" : "false" } }
+    ),
+
+  extractOffBlotterCert: (pdf: File) => {
+    const fd = new FormData();
+    fd.append("pdf", pdf);
+    return request<OffBlotterExtractResponse>("/api/off-blotter/extract", {
+      method: "POST",
+      formData: fd,
+    });
+  },
+
+  createOffBlotterLine: (input: {
+    counterparty_id: number;
+    certificate_number: string | null;
+    inception_date: string; // YYYY-MM-DD
+    buyer_reference: string | null;
+    commodity: string | null;
+    quantity_text: string | null;
+    insured_value_amount: string;
+    insured_value_currency: string;
+    po_reference: string | null;
+    referenced_supplier_invoice: string | null;
+    cert_extraction_json: string | null;
+    pdf: File | null;
+  }) => {
+    const fd = new FormData();
+    fd.append("counterparty_id", String(input.counterparty_id));
+    if (input.certificate_number)
+      fd.append("certificate_number", input.certificate_number);
+    fd.append("inception_date", input.inception_date);
+    if (input.buyer_reference) fd.append("buyer_reference", input.buyer_reference);
+    if (input.commodity) fd.append("commodity", input.commodity);
+    if (input.quantity_text) fd.append("quantity_text", input.quantity_text);
+    fd.append("insured_value_amount", input.insured_value_amount);
+    fd.append("insured_value_currency", input.insured_value_currency);
+    if (input.po_reference) fd.append("po_reference", input.po_reference);
+    if (input.referenced_supplier_invoice)
+      fd.append("referenced_supplier_invoice", input.referenced_supplier_invoice);
+    if (input.cert_extraction_json)
+      fd.append("cert_extraction_json", input.cert_extraction_json);
+    if (input.pdf) fd.append("pdf", input.pdf);
+    return request<OffBlotterLine>("/api/off-blotter/lines", {
+      method: "POST",
+      formData: fd,
+    });
+  },
+
+  markOffBlotterFunded: (lineId: number, funded_at: string) =>
+    request<OffBlotterLine>(
+      `/api/off-blotter/lines/${lineId}/funded`,
+      { method: "POST", body: { funded_at } }
+    ),
+
+  cancelOffBlotterLine: (lineId: number) =>
+    request<OffBlotterLine>(
+      `/api/off-blotter/lines/${lineId}/cancel`,
+      { method: "POST", body: {} }
+    ),
+
+  offBlotterPdfUrl: (lineId: number) =>
+    `${API_BASE_URL}/api/off-blotter/lines/${lineId}/pdf`,
+
+  previewInvoicingPdf: async (input: PreviewPdfInput): Promise<Blob> => {
+    const token = getStoredToken();
+    const res = await fetch(`${API_BASE_URL}/api/invoicing/preview-pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ ...input, manual_adjustments: [] }),
+    });
+    if (res.status === 401 && onUnauthorized) onUnauthorized();
+    if (!res.ok) {
+      const text = await res.text();
+      let body: unknown = text;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // non-JSON
+      }
+      const msg =
+        (body && typeof body === "object" && "error" in body
+          ? String((body as { error: unknown }).error)
+          : null) ??
+        (typeof body === "string" ? body : null) ??
+        `Preview failed (${res.status})`;
+      throw new ApiError(msg, res.status, body);
+    }
+    return res.blob();
+  },
 };

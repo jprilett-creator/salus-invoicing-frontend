@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowLeft, CheckCircle2, FileText, Pencil, RotateCcw } from "lucide-react";
+import { Archive, ArrowLeft, CheckCircle2, FileText, Pencil, RotateCcw, Shield } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   AuditEntry,
   CounterpartyDetail,
   CounterpartyPatch,
   KycChecks,
+  OffBlotterLine,
 } from "../lib/types";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -20,13 +21,27 @@ import { useToast } from "../components/ui/Toaster";
 import { formatDateTime, formatShortDate } from "../lib/format";
 import { cn } from "../lib/cn";
 
-type Tab = "overview" | "contracts" | "fees" | "history" | "kyc" | "audit";
+type Tab =
+  | "overview"
+  | "contracts"
+  | "fees"
+  | "history"
+  | "insurance"
+  | "kyc"
+  | "audit";
 
-const TABS: { key: Tab; label: string }[] = [
+interface TabDef {
+  key: Tab;
+  label: string;
+  supplierOnly?: boolean;
+}
+
+const TABS: TabDef[] = [
   { key: "overview", label: "Overview" },
   { key: "contracts", label: "Contracts" },
   { key: "fees", label: "Fee schedule" },
   { key: "history", label: "Invoicing history" },
+  { key: "insurance", label: "Insurance", supplierOnly: true },
   { key: "kyc", label: "KYC" },
   { key: "audit", label: "Audit" },
 ];
@@ -124,7 +139,7 @@ export function CounterpartyDetailPage() {
           </div>
 
           <nav className="mt-6 flex items-center gap-6 -mb-px">
-            {TABS.map((t) => (
+            {TABS.filter((t) => !t.supplierOnly || (cp?.roles ?? []).includes("supplier")).map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -178,6 +193,9 @@ export function CounterpartyDetailPage() {
         {cp && tab === "contracts" && <ContractsTab cp={cp} />}
         {cp && tab === "fees" && <PlaceholderTab title="Fee schedule" />}
         {cp && tab === "history" && <PlaceholderTab title="Invoicing history" />}
+        {cp && tab === "insurance" && cp.roles.includes("supplier") && (
+          <InsuranceTab cp={cp} cpId={cpId} />
+        )}
         {cp && tab === "kyc" && <KycTab cp={cp} cpId={cpId} />}
         {cp && tab === "audit" && <AuditTab cpId={cpId} />}
       </div>
@@ -531,6 +549,347 @@ function PlaceholderTab({ title }: { title: string }) {
     <div className="bg-white border border-card-border rounded-lg p-10 text-center">
       <h2 className="text-base font-semibold text-ink">{title}</h2>
       <p className="mt-2 text-sm text-ink-muted">Coming soon.</p>
+    </div>
+  );
+}
+
+function InsuranceTab({ cp, cpId }: { cp: CounterpartyDetail; cpId: number }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const apiBase =
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+    "https://salus-invoicing.onrender.com";
+
+  const linesQuery = useQuery({
+    queryKey: ["off-blotter", cpId],
+    queryFn: () => api.listOffBlotter(cpId, true),
+  });
+
+  const fundedMut = useMutation({
+    mutationFn: ({ id, fundedAt }: { id: number; fundedAt: string }) =>
+      api.markOffBlotterFunded(id, fundedAt),
+    onSuccess: () => {
+      toast("Cert marked funded");
+      qc.invalidateQueries({ queryKey: ["off-blotter", cpId] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: (id: number) => api.cancelOffBlotterLine(id),
+    onSuccess: () => {
+      toast("Cert cancelled");
+      qc.invalidateQueries({ queryKey: ["off-blotter", cpId] });
+    },
+    onError: (e: Error) => toast(e.message, "error"),
+  });
+
+  const lines = linesQuery.data ?? [];
+  const active = lines.filter((l) => l.status === "active");
+  const history = lines.filter((l) => l.status !== "active");
+  const totalAccrued = lines.reduce((sum, l) => sum + l.total_accrued_to_date, 0);
+  const currency = lines[0]?.insured_value_currency ?? cp.currency;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border border-card-border rounded-lg p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-ink-muted" strokeWidth={2} />
+              <h2 className="text-base font-semibold text-ink">Insurance certs</h2>
+            </div>
+            <p className="mt-1 text-xs text-ink-muted">
+              Off-blotter certificates of cargo insurance for this supplier.
+              Each accrues a daily admin fee for up to 60 days, until the
+              underlying invoice is funded.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" disabled>
+            + Add cert
+          </Button>
+        </div>
+
+        {linesQuery.isLoading ? (
+          <div className="flex justify-center py-10">
+            <Spinner foreground={false} />
+          </div>
+        ) : linesQuery.isError ? (
+          <p className="mt-4 text-sm text-danger">
+            Couldn&apos;t load certs. {(linesQuery.error as Error).message}
+          </p>
+        ) : lines.length === 0 ? (
+          <p className="mt-6 text-sm text-ink-muted">
+            No certs on file. Click &ldquo;Add cert&rdquo; to upload one.
+          </p>
+        ) : (
+          <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-6 text-sm">
+            <SmallStat label="Active" value={String(active.length)} />
+            <SmallStat label="History" value={String(history.length)} />
+            <SmallStat
+              label="Accrued to date"
+              value={`${currency} ${totalAccrued.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}`}
+            />
+            <SmallStat
+              label="Currency"
+              value={currency}
+            />
+          </div>
+        )}
+      </div>
+
+      {active.length > 0 && (
+        <CertList
+          title="Active"
+          lines={active}
+          apiBase={apiBase}
+          onFund={(id, fundedAt) => fundedMut.mutate({ id, fundedAt })}
+          onCancel={(id) => cancelMut.mutate(id)}
+          fundingId={fundedMut.isPending ? fundedMut.variables?.id : null}
+          cancellingId={cancelMut.isPending ? cancelMut.variables : null}
+        />
+      )}
+
+      {history.length > 0 && (
+        <CertList
+          title="History"
+          lines={history}
+          apiBase={apiBase}
+          historical
+        />
+      )}
+    </div>
+  );
+}
+
+function CertList({
+  title,
+  lines,
+  apiBase,
+  historical,
+  onFund,
+  onCancel,
+  fundingId,
+  cancellingId,
+}: {
+  title: string;
+  lines: OffBlotterLine[];
+  apiBase: string;
+  historical?: boolean;
+  onFund?: (id: number, fundedAt: string) => void;
+  onCancel?: (id: number) => void;
+  fundingId?: number | null;
+  cancellingId?: number | null;
+}) {
+  return (
+    <div className="bg-white border border-card-border rounded-lg overflow-hidden">
+      <div className="px-6 py-4 border-b border-card-border">
+        <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      </div>
+      <ul className="divide-y divide-card-border">
+        {lines.map((line) => (
+          <li key={line.id} className="px-6 py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-medium text-ink">
+                  {line.certificate_number ?? `Cert #${line.id}`}
+                  <CertStatusBadge status={line.status} />
+                </div>
+                <div className="mt-1 text-xs text-ink-muted truncate">
+                  {[line.commodity, line.quantity_text].filter(Boolean).join(" · ") ||
+                    "—"}
+                </div>
+                <div className="mt-2 text-xs text-ink-muted flex flex-wrap gap-x-4 gap-y-1">
+                  <span>
+                    Inception{" "}
+                    <span className="text-ink-dim">
+                      {formatShortDate(line.inception_date)}
+                    </span>
+                  </span>
+                  <span>
+                    Insured{" "}
+                    <span className="text-ink-dim tabular-nums">
+                      {line.insured_value_currency}{" "}
+                      {line.insured_value_amount.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </span>
+                  {line.po_reference && (
+                    <span>
+                      PO <span className="text-ink-dim">{line.po_reference}</span>
+                    </span>
+                  )}
+                  {line.referenced_supplier_invoice && (
+                    <span>
+                      Inv{" "}
+                      <span className="text-ink-dim">
+                        {line.referenced_supplier_invoice}
+                      </span>
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-xs text-ink-muted flex flex-wrap gap-x-4 gap-y-1">
+                  <span>
+                    Days used{" "}
+                    <span className="text-ink-dim tabular-nums">
+                      {line.days_used} / {line.days_used + line.days_remaining}
+                    </span>
+                  </span>
+                  <span>
+                    Accrued{" "}
+                    <span className="text-ink-dim tabular-nums">
+                      {line.insured_value_currency}{" "}
+                      {line.total_accrued_to_date.toLocaleString(undefined, {
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                  </span>
+                  {line.status === "active" && line.current_month_fee > 0 && (
+                    <span>
+                      This month{" "}
+                      <span className="text-ink-dim tabular-nums">
+                        {line.insured_value_currency}{" "}
+                        {line.current_month_fee.toLocaleString(undefined, {
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </span>
+                  )}
+                  {line.funded_at && (
+                    <span>
+                      Funded{" "}
+                      <span className="text-ink-dim">
+                        {formatShortDate(line.funded_at)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                {line.certificate_pdf_filename && (
+                  <a
+                    href={`${apiBase}/api/off-blotter/lines/${line.id}/pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-mint-deep hover:underline inline-flex items-center gap-1"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    PDF
+                  </a>
+                )}
+                {!historical && onFund && onCancel && (
+                  <CertActions
+                    line={line}
+                    onFund={(fundedAt) => onFund(line.id, fundedAt)}
+                    onCancel={() => onCancel(line.id)}
+                    funding={fundingId === line.id}
+                    cancelling={cancellingId === line.id}
+                  />
+                )}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CertActions({
+  line,
+  onFund,
+  onCancel,
+  funding,
+  cancelling,
+}: {
+  line: OffBlotterLine;
+  onFund: (fundedAt: string) => void;
+  onCancel: () => void;
+  funding: boolean;
+  cancelling: boolean;
+}) {
+  const [pickingDate, setPickingDate] = useState(false);
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  if (pickingDate) {
+    return (
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          value={date}
+          min={line.inception_date}
+          onChange={(e) => setDate(e.target.value)}
+          className="text-xs h-7 py-0 px-2 w-36"
+        />
+        <Button
+          size="sm"
+          loading={funding}
+          onClick={() => onFund(date)}
+        >
+          Confirm
+        </Button>
+        <button
+          type="button"
+          className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+          onClick={() => setPickingDate(false)}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => setPickingDate(true)}
+        disabled={cancelling}
+      >
+        Mark funded
+      </Button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={cancelling}
+        className="text-xs text-ink-muted hover:text-danger underline-offset-4 hover:underline disabled:opacity-50"
+      >
+        {cancelling ? "Cancelling…" : "Cancel"}
+      </button>
+    </div>
+  );
+}
+
+function CertStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { className: string; label: string }> = {
+    active: { className: "bg-mint-dim text-mint-deep", label: "Active" },
+    funded: { className: "bg-neutral-bg text-neutral-deep", label: "Funded" },
+    cancelled: { className: "bg-danger-bg text-danger-deep", label: "Cancelled" },
+  };
+  const m = map[status] ?? { className: "bg-neutral-bg text-neutral-deep", label: status };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide",
+        m.className
+      )}
+    >
+      {m.label}
+    </span>
+  );
+}
+
+function SmallStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-medium text-ink tabular-nums">{value}</div>
     </div>
   );
 }
