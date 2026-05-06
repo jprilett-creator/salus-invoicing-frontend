@@ -9,9 +9,15 @@ import { EmptyState } from "../components/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
 import { NeutralBadge } from "../components/ui/StatusBadge";
 import { PageHeader } from "../components/PageHeader";
-import { RevenueChart, RevenueChartLegend } from "../components/RevenueChart";
+import {
+  PlatformVolumeChart,
+  PlatformVolumeChartLegend,
+  RevenueChart,
+  RevenueChartLegend,
+} from "../components/RevenueChart";
 import { formatShortDate, formatUsd, previousMonthLabel } from "../lib/format";
 import {
+  PLATFORM_VOLUME_BY_MONTH,
   REVENUE_BY_MONTH,
   TOTAL_FEES_USD,
   TOTAL_PLATFORM_VOLUME_USD,
@@ -120,15 +126,31 @@ export function CounterpartiesPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-4">
           <div className="bg-white border border-card-border rounded-lg p-6">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+                  Platform volume by month
+                </div>
+                <div className="mt-1 text-xs text-ink-muted">
+                  May 2025 – May 2026 · financing + insurance GMV
+                </div>
+              </div>
+              <PlatformVolumeChartLegend />
+            </div>
+            <div className="mt-3">
+              <PlatformVolumeChart data={PLATFORM_VOLUME_BY_MONTH} />
+            </div>
+          </div>
+          <div className="bg-white border border-card-border rounded-lg p-6">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
                   Revenue by month
                 </div>
                 <div className="mt-1 text-xs text-ink-muted">
-                  May 2025 – May 2026
+                  May 2025 – May 2026 · subscriptions + fees
                 </div>
               </div>
               <RevenueChartLegend />
@@ -137,25 +159,26 @@ export function CounterpartiesPage() {
               <RevenueChart data={REVENUE_BY_MONTH} />
             </div>
           </div>
-          <div className="bg-white border border-card-border rounded-lg p-6">
-            <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
-              Active counterparties
-            </div>
-            {dashboard ? (
-              <>
-                <div className="mt-3 text-3xl font-semibold text-ink tabular-nums">
-                  {dashboard.counterparties_summary.total}
-                </div>
-                <div className="mt-2 text-xs text-ink-muted">
-                  {Object.entries(dashboard.counterparties_summary.by_role)
-                    .map(([k, v]) => `${v} ${ROLE_LABEL[k] ?? k}${v === 1 ? "" : "s"}`)
-                    .join(" · ") || "—"}
-                </div>
-              </>
-            ) : (
-              <div className="mt-3 text-sm text-ink-muted">—</div>
-            )}
+        </div>
+
+        <div className="bg-white border border-card-border rounded-lg p-6">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-ink-muted">
+            Active counterparties
           </div>
+          {dashboard ? (
+            <>
+              <div className="mt-3 text-3xl font-semibold text-ink tabular-nums">
+                {dashboard.counterparties_summary.total}
+              </div>
+              <div className="mt-2 text-xs text-ink-muted">
+                {Object.entries(dashboard.counterparties_summary.by_role)
+                  .map(([k, v]) => `${v} ${ROLE_LABEL[k] ?? k}${v === 1 ? "" : "s"}`)
+                  .join(" · ") || "—"}
+              </div>
+            </>
+          ) : (
+            <div className="mt-3 text-sm text-ink-muted">—</div>
+          )}
         </div>
 
         {/* Counterparty list */}
