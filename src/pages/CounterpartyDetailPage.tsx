@@ -311,7 +311,9 @@ function OverviewView({ cp }: { cp: CounterpartyDetail }) {
           <ReadField label="Registered address" value={cp.registered_address} />
           <ReadField label="Billing address" value={cp.billing_address ?? cp.registered_address} />
           <ReadField label="Billing email" value={cp.billing_email} />
-          <ReadField label="Xero contact ID" value={cp.xero_contact_id} />
+          {cp.xero_contact_id && (
+            <ReadField label="Xero contact ID" value={cp.xero_contact_id} />
+          )}
         </div>
       </div>
       <div className="space-y-4">
@@ -425,8 +427,15 @@ function OverviewEdit({
         <Field label="Company number">
           <Input value={form.company_number} onChange={(e) => setField("company_number", e.target.value)} />
         </Field>
-        <Field label="Xero contact ID">
-          <Input value={form.xero_contact_id} onChange={(e) => setField("xero_contact_id", e.target.value)} />
+        <Field
+          label="Xero contact ID"
+          hint="Required for Xero sync. Find this in the Xero contact's URL."
+        >
+          <Input
+            value={form.xero_contact_id}
+            onChange={(e) => setField("xero_contact_id", e.target.value)}
+            placeholder="00000000-0000-0000-0000-000000000000"
+          />
         </Field>
         <Field label="Registered address" wide>
           <Textarea value={form.registered_address} onChange={(e) => setField("registered_address", e.target.value)} />
@@ -473,16 +482,19 @@ function OverviewEdit({
 function Field({
   label,
   wide,
+  hint,
   children,
 }: {
   label: string;
   wide?: boolean;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className={wide ? "sm:col-span-2" : ""}>
       <Label>{label}</Label>
       {children}
+      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
     </div>
   );
 }
