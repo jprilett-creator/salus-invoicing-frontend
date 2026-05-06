@@ -22,6 +22,7 @@ import {
   PLATFORM_VOLUME_BY_MONTH,
   SUBSCRIPTIONS_BY_MONTH,
   TOTAL_FEES_USD,
+  TOTAL_PLATFORM_PARCELS,
   TOTAL_PLATFORM_VOLUME_USD,
   TOTAL_REVENUE_USD,
   TOTAL_SUBSCRIPTIONS_USD,
@@ -122,9 +123,9 @@ export function CounterpartiesPage() {
             supporting="Transaction + insurance admin"
           />
           <MetricCard
-            label="Platform volume"
+            label="Total platform volume"
             value={formatUsd(TOTAL_PLATFORM_VOLUME_USD)}
-            supporting="Financing + insurance GMV"
+            supporting={`Across ${TOTAL_PLATFORM_PARCELS} parcels`}
           />
         </div>
 
@@ -136,7 +137,7 @@ export function CounterpartiesPage() {
                   Platform volume by month
                 </div>
                 <div className="mt-1 text-xs text-ink-muted">
-                  May 2025 – May 2026 · financing + insurance GMV
+                  May 2025 – May 2026 · cargo + insurance volume
                 </div>
               </div>
               <PlatformVolumeChartLegend />

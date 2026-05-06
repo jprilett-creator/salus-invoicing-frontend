@@ -3,8 +3,8 @@
 
 export interface MonthlyPlatformVolumePoint {
   month: string;
-  financing_usd: number;
-  insurance_usd: number;
+  gmv_usd: number;
+  parcels: number;
 }
 
 export interface MonthlySubscriptionPoint {
@@ -77,30 +77,24 @@ export const INSURANCE_ADMIN_FEES: Record<string, number> = {
   "2026-05": 0,
 };
 
-// Hartree-via-PowerX financing GMV per month. Real spiky values.
-// Confirmed: May'25, Jun'25, Jul'25, Apr'26. Other months are placeholder
-// figures pending the real per-month numbers — replace verbatim when known.
-export const POWERX_FINANCING_GMV: Record<string, number> = {
-  "2025-05": 70511,  // confirmed
-  "2025-06": 34930,  // confirmed
-  "2025-07": 78402,  // confirmed
-  "2025-08": 91558,  // placeholder
-  "2025-09": 12447,  // placeholder
-  "2025-10": 67201,  // placeholder
-  "2025-11": 38819,  // placeholder
-  "2025-12": 84003,  // placeholder
-  "2026-01": 19892,  // placeholder
-  "2026-02": 73604,  // placeholder
-  "2026-03": 78889,  // placeholder
-  "2026-04": 326728, // confirmed
-  "2026-05": 0,      // no May financing yet
-};
-
-// Hartree-via-PowerX insured value (insurance GMV) per month. Only April 2026
-// has an insured shipment recorded. Other months stay absent (no key) and the
-// chart renders zero for them — no padding or interpolation.
-export const POWERX_INSURANCE_GMV: Record<string, number> = {
-  "2026-04": 287065,
+// Combined platform volume per month: GMV (financing + insurance) plus the
+// number of parcels declared. April 2026 GMV combines $326,728 financing and
+// $287,065 insurance; April parcels combine 2 financing + 2 insurance
+// declarations.
+export const MONTHLY_VOLUME: Record<string, { gmv: number; parcels: number }> = {
+  "2025-05": { gmv: 70511, parcels: 7 },
+  "2025-06": { gmv: 34930, parcels: 5 },
+  "2025-07": { gmv: 78402, parcels: 8 },
+  "2025-08": { gmv: 71162, parcels: 7 },
+  "2025-09": { gmv: 102887, parcels: 8 },
+  "2025-10": { gmv: 66143, parcels: 9 },
+  "2025-11": { gmv: 30068, parcels: 4 },
+  "2025-12": { gmv: 32569, parcels: 3 },
+  "2026-01": { gmv: 65518, parcels: 3 },
+  "2026-02": { gmv: 40373, parcels: 4 },
+  "2026-03": { gmv: 57693, parcels: 4 },
+  "2026-04": { gmv: 613793, parcels: 4 },
+  "2026-05": { gmv: 0, parcels: 0 },
 };
 
 export const SUBSCRIPTIONS_BY_MONTH: MonthlySubscriptionPoint[] =
@@ -120,14 +114,18 @@ export const FEES_BY_MONTH: MonthlyFeesPoint[] = WINDOW_MONTHS.map(
 export const PLATFORM_VOLUME_BY_MONTH: MonthlyPlatformVolumePoint[] =
   WINDOW_MONTHS.map((month) => ({
     month,
-    financing_usd: POWERX_FINANCING_GMV[month] ?? 0,
-    insurance_usd: POWERX_INSURANCE_GMV[month] ?? 0,
+    gmv_usd: MONTHLY_VOLUME[month]?.gmv ?? 0,
+    parcels: MONTHLY_VOLUME[month]?.parcels ?? 0,
   }));
 
 export const TOTAL_SUBSCRIPTIONS_USD = 240_000;
 export const TOTAL_FEES_USD = 3_855;
 export const TOTAL_REVENUE_USD = 243_855;
 export const TOTAL_PLATFORM_VOLUME_USD = 1_264_049;
+export const TOTAL_PLATFORM_PARCELS = Object.values(MONTHLY_VOLUME).reduce(
+  (acc, m) => acc + m.parcels,
+  0
+);
 
 // Outstanding fees that have accrued but not been invoiced. Keyed by
 // counterparty short_name (case-insensitive) and surfaced on the Fee schedule
