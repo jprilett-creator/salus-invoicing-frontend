@@ -13,6 +13,8 @@ import type {
   GenerateAllDueResponse,
   GenerateDraftResult,
   HealthResponse,
+  HistoricalInvoice,
+  HistoricalInvoiceCreate,
   InvoiceDraft,
   KycAttestation,
   KycChecks,
@@ -433,5 +435,59 @@ export const api = {
   ) =>
     request<CounterpartyInvoice[]>(`/api/counterparties/${cpId}/invoices`, {
       query: { from: filters.from, to: filters.to },
+    }),
+
+  listHistoricalInvoices: (cpId: number) =>
+    request<HistoricalInvoice[]>(`/api/counterparties/${cpId}/historical-invoices`),
+
+  uploadHistoricalInvoice: (cpId: number, input: HistoricalInvoiceCreate) => {
+    const fd = new FormData();
+    fd.append("file", input.file);
+    fd.append("invoice_number", input.invoice_number);
+    fd.append("invoice_date", input.invoice_date);
+    fd.append("total_amount", String(input.total_amount));
+    fd.append("currency", input.currency);
+    fd.append("fee_type", input.fee_type);
+    if (input.note) fd.append("note", input.note);
+    return request<HistoricalInvoice>(
+      `/api/counterparties/${cpId}/historical-invoices`,
+      { method: "POST", formData: fd }
+    );
+  },
+
+  // Returns a Blob plus the filename pulled from Content-Disposition.
+  // The endpoint requires Bearer auth so a plain <a href> won't work — the
+  // caller is expected to trigger a save dialog from the blob.
+  downloadHistoricalInvoice: async (
+    hiId: number
+  ): Promise<{ blob: Blob; filename: string | null }> => {
+    const headers: Record<string, string> = {};
+    const token = getStoredToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(
+        `${API_BASE_URL}/api/historical-invoices/${hiId}/file`,
+        { headers }
+      );
+    } catch (e) {
+      throw new ApiError(
+        e instanceof Error ? e.message : "Network error",
+        0,
+        null
+      );
+    }
+    if (res.status === 401 && onUnauthorized) onUnauthorized();
+    if (!res.ok) {
+      throw new ApiError(`Download failed (${res.status})`, res.status, null);
+    }
+    const dispo = res.headers.get("content-disposition") ?? "";
+    const match = /filename="?([^"]+)"?/.exec(dispo);
+    return { blob: await res.blob(), filename: match?.[1] ?? null };
+  },
+
+  deleteHistoricalInvoice: (hiId: number) =>
+    request<{ ok: boolean }>(`/api/historical-invoices/${hiId}`, {
+      method: "DELETE",
     }),
 };

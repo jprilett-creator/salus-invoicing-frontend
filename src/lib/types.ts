@@ -444,6 +444,38 @@ export interface CounterpartyInvoice {
   status: InvoiceStatus;
 }
 
+export type HistoricalInvoiceFeeType =
+  | "transaction_fee"
+  | "insurance_admin"
+  | "subscription"
+  | "other";
+
+export interface HistoricalInvoice {
+  id: number;
+  counterparty_id: number;
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
+  currency: string;
+  fee_type: HistoricalInvoiceFeeType;
+  note: string | null;
+  file_filename: string;
+  file_size_bytes: number;
+  file_content_type: string | null;
+  uploaded_at: string | null;
+  uploaded_by_email: string | null;
+}
+
+export interface HistoricalInvoiceCreate {
+  invoice_number: string;
+  invoice_date: string;
+  total_amount: number;
+  currency: string;
+  fee_type: HistoricalInvoiceFeeType;
+  note: string | null;
+  file: File;
+}
+
 // ---------------- Off-blotter / insurance certificates ----------------
 
 export interface InsuranceCertExtraction {

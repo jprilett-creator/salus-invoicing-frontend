@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
-import { api } from "../lib/api";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download, Plus, Trash2, Upload, X } from "lucide-react";
+import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
+  CounterpartyInvoice,
+  HistoricalInvoice,
+  HistoricalInvoiceFeeType,
   InvoiceStatus,
 } from "../lib/types";
 import { Spinner } from "./ui/Spinner";
@@ -11,10 +14,13 @@ import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import { Label } from "./ui/Label";
 import { Select } from "./ui/Select";
+import { Textarea } from "./ui/Textarea";
+import { DropZone } from "./DropZone";
+import { useToast } from "./ui/Toaster";
 import { formatShortDate } from "../lib/format";
 import { cn } from "../lib/cn";
 
-type StatusFilter = "all" | InvoiceStatus;
+type StatusFilter = "all" | InvoiceStatus | "historical";
 
 const STATUS_LABEL: Record<InvoiceStatus, string> = {
   drafted: "Drafted",
@@ -23,12 +29,107 @@ const STATUS_LABEL: Record<InvoiceStatus, string> = {
   disputed: "Disputed",
 };
 
+const FEE_TYPE_LABEL: Record<HistoricalInvoiceFeeType, string> = {
+  transaction_fee: "Transaction fee",
+  insurance_admin: "Insurance admin",
+  subscription: "Subscription",
+  other: "Other",
+};
+
+const HISTORICAL_ACCEPT =
+  ".pdf,.xlsx,.xls,.csv,application/pdf," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
+  "application/vnd.ms-excel,text/csv,application/csv";
+
+interface PlatformRow {
+  kind: "platform";
+  invoice_number: string;
+  invoiced_at: string;
+  period: string | null;
+  salus_fee: number;
+  insurance_fee: number;
+  other: number;
+  total: number;
+  currency: string;
+  status: InvoiceStatus;
+  xero_invoice_id: string | null;
+  fee_type_label: string;
+}
+
+interface HistoricalRow {
+  kind: "historical";
+  id: number;
+  invoice_number: string;
+  invoiced_at: string;
+  period: string | null;
+  salus_fee: number;
+  insurance_fee: number;
+  other: number;
+  total: number;
+  currency: string;
+  status: "historical";
+  fee_type: HistoricalInvoiceFeeType;
+  fee_type_label: string;
+  file_filename: string;
+  note: string | null;
+}
+
+type Row = PlatformRow | HistoricalRow;
+
+function platformToRow(i: CounterpartyInvoice, currency: string): PlatformRow {
+  const platformLabels: string[] = [];
+  if (i.salus_fee) platformLabels.push("Salus");
+  if (i.insurance_fee) platformLabels.push("Insurance");
+  if (i.subscription_fee) platformLabels.push("Subscription");
+  if (i.other_fees) platformLabels.push("Other");
+  return {
+    kind: "platform",
+    invoice_number: i.invoice_number,
+    invoiced_at: i.invoiced_at,
+    period: i.period,
+    salus_fee: i.salus_fee,
+    insurance_fee: i.insurance_fee,
+    other: i.subscription_fee + i.other_fees,
+    total: i.total,
+    currency,
+    status: i.status,
+    xero_invoice_id: i.xero_invoice_id,
+    fee_type_label: platformLabels.join(", ") || "—",
+  };
+}
+
+function historicalToRow(h: HistoricalInvoice): HistoricalRow {
+  // Mirror platform's salus/insurance/other split based on fee_type.
+  const isInsurance = h.fee_type === "insurance_admin";
+  const isSalus = h.fee_type === "transaction_fee";
+  return {
+    kind: "historical",
+    id: h.id,
+    invoice_number: h.invoice_number,
+    invoiced_at: h.invoice_date,
+    period: null,
+    salus_fee: isSalus ? h.total_amount : 0,
+    insurance_fee: isInsurance ? h.total_amount : 0,
+    other: !isSalus && !isInsurance ? h.total_amount : 0,
+    total: h.total_amount,
+    currency: h.currency,
+    status: "historical",
+    fee_type: h.fee_type,
+    fee_type_label: FEE_TYPE_LABEL[h.fee_type],
+    file_filename: h.file_filename,
+    note: h.note,
+  };
+}
+
 export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [uploadOpen, setUploadOpen] = useState(false);
 
-  const q = useQuery({
+  const platformQuery = useQuery({
     queryKey: ["counterparty-invoices", cp.id, from, to],
     queryFn: () =>
       api.listCounterpartyInvoices(cp.id, {
@@ -37,28 +138,50 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
       }),
   });
 
+  const historicalQuery = useQuery({
+    queryKey: ["counterparty-historical-invoices", cp.id],
+    queryFn: () => api.listHistoricalInvoices(cp.id),
+  });
+
+  const merged = useMemo<Row[]>(() => {
+    const platform = (platformQuery.data ?? []).map((i) =>
+      platformToRow(i, cp.currency)
+    );
+    const historical = (historicalQuery.data ?? []).map(historicalToRow);
+    // Apply the From / To filter on the historical side too — the platform
+    // endpoint already does it server-side.
+    const filteredHistorical = historical.filter((h) => {
+      if (from && h.invoiced_at < from) return false;
+      if (to && h.invoiced_at > to) return false;
+      return true;
+    });
+    return [...platform, ...filteredHistorical].sort((a, b) =>
+      a.invoiced_at < b.invoiced_at ? 1 : -1
+    );
+  }, [platformQuery.data, historicalQuery.data, cp.currency, from, to]);
+
   const filtered = useMemo(() => {
-    if (!q.data) return [];
-    if (status === "all") return q.data;
-    return q.data.filter((i) => i.status === status);
-  }, [q.data, status]);
+    if (status === "all") return merged;
+    if (status === "historical")
+      return merged.filter((r) => r.kind === "historical");
+    return merged.filter((r) => r.kind === "platform" && r.status === status);
+  }, [merged, status]);
 
   const totals = useMemo(() => {
     return filtered.reduce(
-      (acc, i) => ({
+      (acc, r) => ({
         count: acc.count + 1,
-        salus: acc.salus + i.salus_fee,
-        insurance: acc.insurance + i.insurance_fee,
-        subscription: acc.subscription + i.subscription_fee,
-        other: acc.other + i.other_fees,
-        total: acc.total + i.total,
+        salus: acc.salus + r.salus_fee,
+        insurance: acc.insurance + r.insurance_fee,
+        other: acc.other + r.other,
+        total: acc.total + r.total,
       }),
-      { count: 0, salus: 0, insurance: 0, subscription: 0, other: 0, total: 0 }
+      { count: 0, salus: 0, insurance: 0, other: 0, total: 0 }
     );
   }, [filtered]);
 
-  const fmt = (n: number) =>
-    `${cp.currency} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const fmt = (n: number, ccy = cp.currency) =>
+    `${ccy} ${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
   const onExport = () => {
     const headers = [
@@ -67,27 +190,27 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
       "Period",
       "Salus fee",
       "Insurance fee",
-      "Subscription fee",
       "Other",
       "Total",
       "Currency",
       "Status",
-      "Xero ID",
+      "Type",
+      "Source",
     ];
     const lines = [headers.join(",")];
-    for (const i of filtered) {
+    for (const r of filtered) {
       const row = [
-        i.invoice_number,
-        formatShortDate(i.invoiced_at),
-        i.period ?? "",
-        i.salus_fee.toFixed(2),
-        i.insurance_fee.toFixed(2),
-        i.subscription_fee.toFixed(2),
-        i.other_fees.toFixed(2),
-        i.total.toFixed(2),
-        cp.currency,
-        STATUS_LABEL[i.status],
-        i.xero_invoice_id ?? "",
+        r.invoice_number,
+        formatShortDate(r.invoiced_at),
+        r.period ?? "",
+        r.salus_fee.toFixed(2),
+        r.insurance_fee.toFixed(2),
+        r.other.toFixed(2),
+        r.total.toFixed(2),
+        r.currency,
+        r.kind === "platform" ? STATUS_LABEL[r.status] : "Historical",
+        r.fee_type_label,
+        r.kind === "platform" ? "Platform" : "Historical",
       ].map((c) => csvEscape(String(c)));
       lines.push(row.join(","));
     }
@@ -102,8 +225,49 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
     URL.revokeObjectURL(url);
   };
 
+  const downloadHistorical = async (row: HistoricalRow) => {
+    try {
+      const { blob, filename } = await api.downloadHistoricalInvoice(row.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename ?? row.file_filename ?? "invoice";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Download failed", "error");
+    }
+  };
+
+  const deleteMut = useMutation({
+    mutationFn: (hiId: number) => api.deleteHistoricalInvoice(hiId),
+    onSuccess: () => {
+      toast("Historical invoice deleted.");
+      qc.invalidateQueries({
+        queryKey: ["counterparty-historical-invoices", cp.id],
+      });
+    },
+    onError: (e) =>
+      toast(e instanceof Error ? e.message : "Delete failed", "error"),
+  });
+
+  const isLoading = platformQuery.isLoading || historicalQuery.isLoading;
+  const loadError = platformQuery.error ?? historicalQuery.error;
+
   return (
     <div className="space-y-4">
+      {/* Top action row */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-ink">Invoicing history</h2>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setUploadOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" /> Upload historical invoice
+        </Button>
+      </div>
+
       {/* Filters */}
       <div className="bg-white border border-card-border rounded-lg p-4 flex flex-wrap items-end gap-4">
         <div>
@@ -136,6 +300,7 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
             <option value="pushed_to_xero">Pushed to Xero</option>
             <option value="paid">Paid</option>
             <option value="disputed">Disputed</option>
+            <option value="historical">Historical</option>
           </Select>
         </div>
         <div className="flex-1" />
@@ -146,13 +311,13 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
 
       {/* Table */}
       <div className="bg-white border border-card-border rounded-lg overflow-hidden">
-        {q.isLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-10">
             <Spinner foreground={false} />
           </div>
-        ) : q.isError ? (
+        ) : loadError ? (
           <p className="p-6 text-sm text-danger">
-            Couldn&apos;t load invoices. {(q.error as Error).message}
+            Couldn&apos;t load invoices. {(loadError as Error).message}
           </p>
         ) : filtered.length === 0 ? (
           <p className="p-6 text-sm text-ink-muted">
@@ -165,48 +330,92 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
                 <tr className="text-left text-xs uppercase tracking-wide text-ink-muted">
                   <th className="px-4 py-2 font-medium">Invoice</th>
                   <th className="px-4 py-2 font-medium">Date</th>
-                  <th className="px-4 py-2 font-medium">Period</th>
+                  <th className="px-4 py-2 font-medium">Period / Type</th>
                   <th className="px-4 py-2 font-medium text-right">Salus fee</th>
                   <th className="px-4 py-2 font-medium text-right">Insurance</th>
                   <th className="px-4 py-2 font-medium text-right">Other</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
                   <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium" />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((i) => (
-                  <tr
-                    key={i.invoice_number}
-                    className="border-t border-card-border hover:bg-neutral-bg/30"
-                  >
-                    <td className="px-4 py-2 font-medium text-ink whitespace-nowrap">
-                      {i.invoice_number}
-                    </td>
-                    <td className="px-4 py-2 text-ink-muted whitespace-nowrap">
-                      {formatShortDate(i.invoiced_at)}
-                    </td>
-                    <td className="px-4 py-2 text-ink-muted whitespace-nowrap">
-                      {i.period ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
-                      {i.salus_fee ? fmt(i.salus_fee) : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
-                      {i.insurance_fee ? fmt(i.insurance_fee) : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
-                      {i.subscription_fee + i.other_fees
-                        ? fmt(i.subscription_fee + i.other_fees)
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-2 text-right text-ink font-medium whitespace-nowrap">
-                      {fmt(i.total)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <StatusPill status={i.status} />
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((r) => {
+                  const isHistorical = r.kind === "historical";
+                  return (
+                    <tr
+                      key={isHistorical ? `h-${r.id}` : `p-${r.invoice_number}`}
+                      className={cn(
+                        "border-t border-card-border hover:bg-neutral-bg/30",
+                        isHistorical && "cursor-pointer"
+                      )}
+                      onClick={
+                        isHistorical
+                          ? () => downloadHistorical(r as HistoricalRow)
+                          : undefined
+                      }
+                    >
+                      <td className="px-4 py-2 font-medium text-ink whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {r.invoice_number}
+                          {isHistorical && <HistoricalBadge />}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted whitespace-nowrap">
+                        {formatShortDate(r.invoiced_at)}
+                      </td>
+                      <td className="px-4 py-2 text-ink-muted whitespace-nowrap">
+                        {r.kind === "platform"
+                          ? (r.period ?? r.fee_type_label)
+                          : r.fee_type_label}
+                      </td>
+                      <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
+                        {r.salus_fee ? fmt(r.salus_fee, r.currency) : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
+                        {r.insurance_fee ? fmt(r.insurance_fee, r.currency) : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right text-ink whitespace-nowrap">
+                        {r.other ? fmt(r.other, r.currency) : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right text-ink font-medium whitespace-nowrap">
+                        {fmt(r.total, r.currency)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {r.kind === "platform" ? (
+                          <StatusPill status={r.status} />
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-card-border bg-neutral-bg text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+                            Uploaded
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="px-4 py-2 text-right whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {isHistorical && (
+                          <button
+                            type="button"
+                            className="text-ink-muted hover:text-danger p-1 rounded"
+                            aria-label="Delete historical invoice"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Delete historical invoice ${r.invoice_number}?`
+                                )
+                              ) {
+                                deleteMut.mutate((r as HistoricalRow).id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -219,14 +428,33 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
           <SubtotalCard label="Invoices" value={String(totals.count)} />
           <SubtotalCard label="Salus fees" value={fmt(totals.salus)} />
           <SubtotalCard label="Insurance fees" value={fmt(totals.insurance)} />
-          <SubtotalCard
-            label="Other"
-            value={fmt(totals.subscription + totals.other)}
-          />
+          <SubtotalCard label="Other" value={fmt(totals.other)} />
           <SubtotalCard label="Total" value={fmt(totals.total)} highlight />
         </div>
       )}
+
+      {uploadOpen && (
+        <UploadModal
+          cp={cp}
+          onClose={() => setUploadOpen(false)}
+          onUploaded={() => {
+            qc.invalidateQueries({
+              queryKey: ["counterparty-historical-invoices", cp.id],
+            });
+            setUploadOpen(false);
+            toast("Historical invoice uploaded.");
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function HistoricalBadge() {
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-card-border bg-page text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      Historical
+    </span>
   );
 }
 
@@ -285,4 +513,246 @@ function SubtotalCard({
 function csvEscape(v: string): string {
   if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
   return v;
+}
+
+const MAX_BYTES = 10 * 1024 * 1024;
+
+function UploadModal({
+  cp,
+  onClose,
+  onUploaded,
+}: {
+  cp: CounterpartyDetail;
+  onClose: () => void;
+  onUploaded: () => void;
+}) {
+  const { toast } = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
+  const [currency, setCurrency] = useState(cp.currency || "USD");
+  const [feeType, setFeeType] =
+    useState<HistoricalInvoiceFeeType>("transaction_fee");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const upload = useMutation({
+    mutationFn: () => {
+      if (!file) throw new Error("Pick a file first.");
+      return api.uploadHistoricalInvoice(cp.id, {
+        invoice_number: invoiceNumber.trim(),
+        invoice_date: invoiceDate,
+        total_amount: Number.parseFloat(totalAmount),
+        currency: currency.trim().toUpperCase(),
+        fee_type: feeType,
+        note: note.trim() || null,
+        file,
+      });
+    },
+    onSuccess: () => onUploaded(),
+    onError: (e) => {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : "Upload failed";
+      setError(msg);
+      toast(msg, "error");
+    },
+  });
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!file) {
+      setError("Drop a PDF, XLSX or CSV file.");
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setError("File exceeds 10MB limit.");
+      return;
+    }
+    if (!invoiceNumber.trim()) {
+      setError("Invoice number is required.");
+      return;
+    }
+    if (!invoiceDate) {
+      setError("Invoice date is required.");
+      return;
+    }
+    const amount = Number.parseFloat(totalAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a positive total amount.");
+      return;
+    }
+    if (!currency.trim()) {
+      setError("Currency is required.");
+      return;
+    }
+    upload.mutate();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white border border-card-border rounded-lg p-6 w-full max-w-2xl mx-4 animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <h3 className="text-base font-semibold text-ink">
+            Upload historical invoice
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-ink-muted hover:text-ink p-1 rounded"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <p className="mt-1 text-xs text-ink-muted">
+          For invoices issued outside the platform — for cross-referencing
+          alongside platform-issued invoices for {cp.short_name}.
+        </p>
+
+        <form onSubmit={submit} className="mt-5 space-y-5">
+          {file ? (
+            <div className="bg-page border border-card-border rounded-md px-3 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-ink truncate">
+                  {file.name}
+                </p>
+                <p className="text-xs text-ink-muted">
+                  {(file.size / 1024).toFixed(1)} KB
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline shrink-0"
+              >
+                Replace
+              </button>
+            </div>
+          ) : (
+            <DropZone
+              accept={HISTORICAL_ACCEPT}
+              onFile={setFile}
+              primaryText="Drop PDF, XLSX or CSV here, or click to browse"
+              secondaryText="Max 10MB."
+              icon={<Upload className="h-7 w-7" strokeWidth={1.5} />}
+            />
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="hi-num">Invoice number</Label>
+              <Input
+                id="hi-num"
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder="INV-1234"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="hi-date">Invoice date</Label>
+              <Input
+                id="hi-date"
+                type="date"
+                value={invoiceDate}
+                onChange={(e) => setInvoiceDate(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="hi-total">Total amount</Label>
+              <Input
+                id="hi-total"
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                value={totalAmount}
+                onChange={(e) => setTotalAmount(e.target.value)}
+                placeholder="0.00"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="hi-ccy">Currency</Label>
+              <Select
+                id="hi-ccy"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+              >
+                {["USD", "EUR", "GBP", "SGD", "AED"].map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="hi-type">Type</Label>
+              <Select
+                id="hi-type"
+                value={feeType}
+                onChange={(e) =>
+                  setFeeType(e.target.value as HistoricalInvoiceFeeType)
+                }
+              >
+                <option value="transaction_fee">Transaction fee</option>
+                <option value="insurance_admin">Insurance admin</option>
+                <option value="subscription">Subscription</option>
+                <option value="other">Other</option>
+              </Select>
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="hi-note">Note (optional)</Label>
+              <Textarea
+                id="hi-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Context, e.g. covers Jan–Mar pre-platform period"
+              />
+            </div>
+          </div>
+
+          {error && <p className="text-sm text-danger">{error}</p>}
+
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+            >
+              Cancel
+            </button>
+            <Button
+              type="submit"
+              loading={upload.isPending}
+              disabled={upload.isPending}
+            >
+              Upload
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
