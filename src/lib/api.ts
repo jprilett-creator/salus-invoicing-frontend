@@ -21,6 +21,7 @@ import type {
   ManualAdjustment,
   OffBlotterExtractResponse,
   OffBlotterLine,
+  OffBlotterPrefillResponse,
   ParseResponse,
   PushResponse,
   SignatureStatus,
@@ -209,6 +210,11 @@ export const api = {
       formData: fd,
     });
   },
+
+  offBlotterPrefill: (counterpartyId: number, periodStr: string) =>
+    request<OffBlotterPrefillResponse>("/api/invoicing/off-blotter-prefill", {
+      query: { counterparty_id: counterpartyId, period_str: periodStr },
+    }),
 
   parseInvoicing: (xlsx: File) => {
     const fd = new FormData();

@@ -501,6 +501,32 @@ export interface OffBlotterAccrual {
   invoiced: boolean;
 }
 
+export interface OffBlotterPrefillRow {
+  // BatchModel-shaped — the wizard can pass these straight back through
+  // ComputeIn.off_blotter without further mapping.
+  salus_id: string;
+  product: string;
+  into_store: string;
+  product_value: number;
+  left_store: string | null;
+  is_off_blotter: boolean;
+  net_weight_kg: number | null;
+  powerx_id: string | null;
+  // Cert-side metadata for rendering the prefilled row.
+  off_blotter_line_id: number;
+  certificate_number: string | null;
+  insured_value_currency: string;
+  accrual_period: string;
+  days_on_risk_this_period: number;
+  fee_amount: number;
+  fee_currency: string;
+}
+
+export interface OffBlotterPrefillResponse {
+  helper_text: string;
+  declarations: OffBlotterPrefillRow[];
+}
+
 export type OffBlotterStatus = "active" | "funded" | "expired" | "cancelled";
 
 export interface OffBlotterLine {

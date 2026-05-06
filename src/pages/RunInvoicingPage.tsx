@@ -1,14 +1,22 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
   CheckCircle2,
   FileSpreadsheet,
   Info,
+  Pencil,
+  X,
 } from "lucide-react";
 import { api } from "../lib/api";
-import type { Batch, InvoiceDraft, PushResult } from "../lib/types";
+import type {
+  Batch,
+  InvoiceDraft,
+  OffBlotterPrefillResponse,
+  OffBlotterPrefillRow,
+  PushResult,
+} from "../lib/types";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Label } from "../components/ui/Label";
@@ -40,9 +48,26 @@ const EMPTY_OB: OffBlotterDraft = {
   left_store: "",
 };
 
+const FALLBACK_HELPER =
+  "Insurance certs registered for active suppliers this period. " +
+  "Edit or add ad-hoc declarations below if needed.";
+
 function defaultPeriod(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function prefillRowToBatch(r: OffBlotterPrefillRow): Batch {
+  return {
+    salus_id: r.salus_id,
+    product: r.product,
+    into_store: r.into_store,
+    product_value: r.product_value,
+    left_store: r.left_store,
+    is_off_blotter: r.is_off_blotter,
+    net_weight_kg: r.net_weight_kg,
+    powerx_id: r.powerx_id,
+  };
 }
 
 export function RunInvoicingPage() {
@@ -60,6 +85,13 @@ export function RunInvoicingPage() {
   const [offBlotter, setOffBlotter] = useState<Batch[]>([]);
   const [obDraft, setObDraft] = useState<OffBlotterDraft>(EMPTY_OB);
 
+  // Step 2: prefilled rows from WS2 certs (per supplier × period).
+  // Keyed by salus_id (OFF-BLOTTER:{line_id}:{period}). Local edits overwrite
+  // BatchModel fields; metadata (cert#, fee_amount, ...) stays for display.
+  const [prefillEdits, setPrefillEdits] = useState<Record<string, Batch>>({});
+  const [prefillRemoved, setPrefillRemoved] = useState<Set<string>>(new Set());
+  const [editingPrefillId, setEditingPrefillId] = useState<string | null>(null);
+
   // Step 3: period
   const [periodStr, setPeriodStr] = useState<string>(defaultPeriod());
 
@@ -75,6 +107,74 @@ export function RunInvoicingPage() {
     refetchOnMount: true,
   });
   const xeroPending = health.data ? !health.data.xero_configured : false;
+
+  // Suppliers — used to fan out prefill calls per supplier × period.
+  const suppliersQuery = useQuery({
+    queryKey: ["counterparties", "suppliers-for-prefill"],
+    queryFn: () => api.listCounterparties(false),
+    select: (cps) =>
+      cps.filter(
+        (c) =>
+          c.roles.includes("supplier") &&
+          c.status !== "suspended" &&
+          c.archived_at === null
+      ),
+  });
+
+  const supplierIds = suppliersQuery.data?.map((c) => c.id) ?? [];
+
+  const prefillResults = useQueries({
+    queries: supplierIds.map((cpId) => ({
+      queryKey: ["off-blotter-prefill", cpId, periodStr],
+      queryFn: () => api.offBlotterPrefill(cpId, periodStr),
+      enabled: Boolean(periodStr),
+      staleTime: 60_000,
+    })),
+  });
+
+  const prefillLoading = prefillResults.some((q) => q.isLoading);
+  const prefillData: OffBlotterPrefillResponse[] = prefillResults
+    .map((q) => q.data)
+    .filter((d): d is OffBlotterPrefillResponse => Boolean(d));
+  const helperText = prefillData[0]?.helper_text ?? FALLBACK_HELPER;
+  const prefillRows: OffBlotterPrefillRow[] = useMemo(
+    () => prefillData.flatMap((r) => r.declarations),
+    [prefillData]
+  );
+
+  // Auto-expand Step 2 when there are prefilled rows.
+  useEffect(() => {
+    if (prefillRows.length > 0) setObOpen(true);
+  }, [prefillRows.length]);
+
+  // When period changes, clear edits/removals on rows that no longer exist
+  // (the backend returns a different set of certs for a different period).
+  useEffect(() => {
+    const known = new Set(prefillRows.map((r) => r.salus_id));
+    setPrefillEdits((cur) => {
+      const next: Record<string, Batch> = {};
+      for (const [k, v] of Object.entries(cur)) if (known.has(k)) next[k] = v;
+      return next;
+    });
+    setPrefillRemoved((cur) => {
+      const next = new Set<string>();
+      for (const k of cur) if (known.has(k)) next.add(k);
+      return next;
+    });
+  }, [prefillRows]);
+
+  const visiblePrefillRows = prefillRows.filter(
+    (r) => !prefillRemoved.has(r.salus_id)
+  );
+
+  const effectivePrefillBatches: Batch[] = visiblePrefillRows.map((r) =>
+    prefillEdits[r.salus_id] ?? prefillRowToBatch(r)
+  );
+
+  const combinedOffBlotter: Batch[] = useMemo(
+    () => [...effectivePrefillBatches, ...offBlotter],
+    [effectivePrefillBatches, offBlotter]
+  );
 
   const parseMut = useMutation({
     mutationFn: async (file: File) => api.parseInvoicing(file),
@@ -92,12 +192,11 @@ export function RunInvoicingPage() {
     mutationFn: () =>
       api.computeInvoicing({
         batches,
-        off_blotter: offBlotter,
+        off_blotter: combinedOffBlotter,
         period_str: periodStr,
       }),
     onSuccess: (res) => {
       setDrafts(res.drafts);
-      // Pre-approve nothing — user must opt in per draft.
       setApproved(new Set());
       setStage("review");
     },
@@ -112,7 +211,7 @@ export function RunInvoicingPage() {
         drafts: approvedDrafts,
         as_draft: pushAsDraft,
         batches,
-        off_blotter: offBlotter,
+        off_blotter: combinedOffBlotter,
         period_str: periodStr,
       });
     },
@@ -146,6 +245,9 @@ export function RunInvoicingPage() {
     setObOpen(false);
     setOffBlotter([]);
     setObDraft(EMPTY_OB);
+    setPrefillEdits({});
+    setPrefillRemoved(new Set());
+    setEditingPrefillId(null);
     setPeriodStr(defaultPeriod());
     setDrafts([]);
     setApproved(new Set());
@@ -153,7 +255,7 @@ export function RunInvoicingPage() {
   };
 
   const computeReady =
-    batches.length > 0 || offBlotter.length > 0;
+    batches.length > 0 || combinedOffBlotter.length > 0;
 
   const handleAddOb = (e: FormEvent) => {
     e.preventDefault();
@@ -261,6 +363,23 @@ export function RunInvoicingPage() {
               : null
           }
           onCompute={() => computeMut.mutate()}
+          helperText={helperText}
+          prefillRows={visiblePrefillRows}
+          prefillLoading={prefillLoading}
+          prefillEdits={prefillEdits}
+          editingPrefillId={editingPrefillId}
+          setEditingPrefillId={setEditingPrefillId}
+          savePrefillEdit={(salus_id, edited) => {
+            setPrefillEdits((cur) => ({ ...cur, [salus_id]: edited }));
+            setEditingPrefillId(null);
+          }}
+          removePrefill={(salus_id) =>
+            setPrefillRemoved((cur) => {
+              const next = new Set(cur);
+              next.add(salus_id);
+              return next;
+            })
+          }
         />
       )}
 
@@ -274,7 +393,7 @@ export function RunInvoicingPage() {
           totals={totals}
           xeroPending={xeroPending}
           batches={batches}
-          offBlotter={offBlotter}
+          offBlotter={combinedOffBlotter}
           periodStr={periodStr}
           onPush={() => pushMut.mutate()}
           onBack={() => setStage("setup")}
@@ -321,6 +440,14 @@ function SetupView(props: {
   computing: boolean;
   computeError: string | null;
   onCompute: () => void;
+  helperText: string;
+  prefillRows: OffBlotterPrefillRow[];
+  prefillLoading: boolean;
+  prefillEdits: Record<string, Batch>;
+  editingPrefillId: string | null;
+  setEditingPrefillId: (id: string | null) => void;
+  savePrefillEdit: (salus_id: string, edited: Batch) => void;
+  removePrefill: (salus_id: string) => void;
 }) {
   const {
     xlsxFile,
@@ -341,7 +468,17 @@ function SetupView(props: {
     computing,
     computeError,
     onCompute,
+    helperText,
+    prefillRows,
+    prefillLoading,
+    prefillEdits,
+    editingPrefillId,
+    setEditingPrefillId,
+    savePrefillEdit,
+    removePrefill,
   } = props;
+
+  const obStepCount = prefillRows.length + offBlotter.length;
 
   return (
     <div className="space-y-6">
@@ -417,9 +554,14 @@ function SetupView(props: {
               index={2}
               title="Off-blotter declarations"
               subtitle={
-                offBlotter.length > 0
-                  ? `${offBlotter.length} added`
-                  : "Optional"
+                obStepCount > 0
+                  ? `${obStepCount} ${obStepCount === 1 ? "declaration" : "declarations"}` +
+                    (prefillRows.length > 0
+                      ? ` · ${prefillRows.length} from Insurance register`
+                      : "")
+                  : prefillLoading
+                    ? "Checking insurance register…"
+                    : "Optional"
               }
               inline
             />
@@ -427,11 +569,31 @@ function SetupView(props: {
         </button>
         {obOpen && (
           <div className="px-6 pb-6 -mt-2 space-y-5">
-            <p className="text-xs text-ink-muted">
-              For direct AJG cover notes that didn&apos;t go through Nexus
-              tokenisation. These attract an insurance admin fee but no
-              transaction fee.
-            </p>
+            <p className="text-xs text-ink-muted">{helperText}</p>
+
+            {prefillLoading && prefillRows.length === 0 && (
+              <div className="flex items-center gap-2 text-xs text-ink-muted">
+                <Spinner />
+                Checking insurance register…
+              </div>
+            )}
+
+            {prefillRows.length > 0 && (
+              <ul className="space-y-2">
+                {prefillRows.map((r) => (
+                  <PrefillRowItem
+                    key={r.salus_id}
+                    row={r}
+                    edited={prefillEdits[r.salus_id]}
+                    isEditing={editingPrefillId === r.salus_id}
+                    onStartEdit={() => setEditingPrefillId(r.salus_id)}
+                    onCancelEdit={() => setEditingPrefillId(null)}
+                    onSaveEdit={(b) => savePrefillEdit(r.salus_id, b)}
+                    onRemove={() => removePrefill(r.salus_id)}
+                  />
+                ))}
+              </ul>
+            )}
 
             {offBlotter.length > 0 && (
               <ul className="space-y-2">
@@ -569,6 +731,173 @@ function SetupView(props: {
         </Button>
       </div>
     </div>
+  );
+}
+
+function PrefillRowItem({
+  row,
+  edited,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onRemove,
+}: {
+  row: OffBlotterPrefillRow;
+  edited: Batch | undefined;
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (b: Batch) => void;
+  onRemove: () => void;
+}) {
+  const display: Batch = edited ?? prefillRowToBatch(row);
+  const isEdited = Boolean(edited);
+
+  if (isEditing) {
+    return (
+      <li className="bg-mint-dim/30 border border-mint/40 rounded-md px-3 py-3">
+        <PrefillEditForm
+          initial={display}
+          onCancel={onCancelEdit}
+          onSave={onSaveEdit}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-4 bg-mint-dim/30 border border-mint/40 rounded-md px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-mint-dim text-mint-deep text-[10px] font-medium uppercase tracking-wide border border-mint/40">
+            From Insurance register
+          </span>
+          {isEdited && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-warn-bg text-warn-deep text-[10px] font-medium uppercase tracking-wide border border-warn/40">
+              Edited
+            </span>
+          )}
+          <span className="text-xs text-ink-muted">
+            {row.certificate_number ? `Cert ${row.certificate_number}` : "No cert #"}
+          </span>
+        </div>
+        <div className="mt-1 text-sm text-ink-dim truncate">
+          <span className="font-medium text-ink">{display.product}</span>
+          {" · "}
+          {row.insured_value_currency}{" "}
+          {(display.product_value ?? 0).toLocaleString()}
+          {" · into risk "}
+          {display.into_store}
+          {" · "}
+          {row.days_on_risk_this_period}d on risk
+          {" · fee "}
+          {row.fee_currency} {row.fee_amount.toFixed(2)}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <button
+          type="button"
+          onClick={onStartEdit}
+          className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-ink transition-colors"
+        >
+          <Pencil className="h-3 w-3" />
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-danger transition-colors"
+        >
+          <X className="h-3 w-3" />
+          Remove
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function PrefillEditForm({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: Batch;
+  onCancel: () => void;
+  onSave: (b: Batch) => void;
+}) {
+  const [product, setProduct] = useState(initial.product);
+  const [productValue, setProductValue] = useState(
+    initial.product_value != null ? String(initial.product_value) : ""
+  );
+  const [intoStore, setIntoStore] = useState(initial.into_store);
+  const [leftStore, setLeftStore] = useState(initial.left_store ?? "");
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const value = Number.parseFloat(productValue);
+    if (!(value > 0) || !intoStore) return;
+    onSave({
+      ...initial,
+      product: product.trim() || initial.product,
+      product_value: value,
+      into_store: intoStore,
+      left_store: leftStore || null,
+    });
+  };
+
+  return (
+    <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="md:col-span-2">
+        <Label htmlFor="pe-product">Commodity</Label>
+        <Input
+          id="pe-product"
+          value={product}
+          onChange={(e) => setProduct(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor="pe-value">Insured value</Label>
+        <Input
+          id="pe-value"
+          type="number"
+          min={0}
+          step="100"
+          value={productValue}
+          onChange={(e) => setProductValue(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor="pe-into">Into risk</Label>
+        <Input
+          id="pe-into"
+          type="date"
+          value={intoStore}
+          onChange={(e) => setIntoStore(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor="pe-left">Left risk (optional)</Label>
+        <Input
+          id="pe-left"
+          type="date"
+          value={leftStore}
+          onChange={(e) => setLeftStore(e.target.value)}
+        />
+      </div>
+      <div className="md:col-span-4 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+        >
+          Cancel
+        </button>
+        <Button type="submit" variant="secondary" size="sm">
+          Save row
+        </Button>
+      </div>
+    </form>
   );
 }
 
