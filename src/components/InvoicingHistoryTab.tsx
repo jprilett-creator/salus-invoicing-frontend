@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Plus, Trash2, Upload, X } from "lucide-react";
+import { Download, ExternalLink, Plus, Trash2, Upload, X } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
@@ -336,6 +336,7 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
                   <th className="px-4 py-2 font-medium text-right">Other</th>
                   <th className="px-4 py-2 font-medium text-right">Total</th>
                   <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Xero</th>
                   <th className="px-4 py-2 font-medium" />
                 </tr>
               </thead>
@@ -389,6 +390,21 @@ export function InvoicingHistoryTab({ cp }: { cp: CounterpartyDetail }) {
                             Uploaded
                           </span>
                         )}
+                      </td>
+                      <td
+                        className="px-4 py-2 whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.kind === "platform" && (
+                          <XeroSyncBadge
+                            xeroInvoiceId={r.xero_invoice_id}
+                            status={r.status}
+                          />
+                        )}
+                        {/* TODO: wire when backend exposes
+                            xero_invoice_status/push_error on
+                            /api/counterparties/{id}/invoices — show a Retry
+                            button next to the badge for failed pushes. */}
                       </td>
                       <td
                         className="px-4 py-2 text-right whitespace-nowrap"
@@ -456,6 +472,39 @@ function HistoricalBadge() {
       Historical
     </span>
   );
+}
+
+const XERO_VIEW_BASE =
+  "https://go.xero.com/AccountsReceivable/View.aspx?InvoiceID=";
+
+function XeroSyncBadge({
+  xeroInvoiceId,
+  status,
+}: {
+  xeroInvoiceId: string | null;
+  status: InvoiceStatus;
+}) {
+  if (xeroInvoiceId) {
+    return (
+      <a
+        href={`${XERO_VIEW_BASE}${xeroInvoiceId}`}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-mint bg-mint-dim text-[10px] font-medium uppercase tracking-wide text-mint-deep hover:underline"
+      >
+        Synced to Xero
+        <ExternalLink className="h-3 w-3" />
+      </a>
+    );
+  }
+  if (status === "drafted") {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-card-border bg-neutral-bg text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+        Not synced
+      </span>
+    );
+  }
+  return <span className="text-xs text-ink-muted">—</span>;
 }
 
 function StatusPill({ status }: { status: InvoiceStatus }) {
