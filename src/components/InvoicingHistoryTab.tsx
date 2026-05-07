@@ -1,6 +1,22 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type FormEvent,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, Plus, Trash2, Upload, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  ExternalLink,
+  FileText,
+  Plus,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import type {
   CounterpartyDetail,
@@ -566,6 +582,34 @@ function csvEscape(v: string): string {
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
+type DetectableField =
+  | "invoice_number"
+  | "invoice_date"
+  | "total_amount"
+  | "currency";
+
+function isPdf(file: File): boolean {
+  return (
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
+function isAcceptableType(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return (
+    isPdf(file) ||
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".csv") ||
+    file.type === "text/csv" ||
+    file.type === "application/csv" ||
+    file.type === "application/vnd.ms-excel" ||
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
+}
+
 function UploadModal({
   cp,
   onClose,
@@ -585,6 +629,12 @@ function UploadModal({
     useState<HistoricalInvoiceFeeType>("transaction_fee");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
+  const [extractionMessage, setExtractionMessage] = useState<string | null>(
+    null
+  );
+  const [detected, setDetected] = useState<Set<DetectableField>>(new Set());
+  const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -593,6 +643,101 @@ function UploadModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const extract = useMutation({
+    mutationFn: (pdf: File) => api.extractHistoricalInvoice(pdf),
+    onSuccess: (res) => {
+      if (!res.extracted) {
+        setExtractionMessage(
+          "Couldn't auto-read this invoice. Please fill in manually."
+        );
+        return;
+      }
+      const f = res.extracted_fields;
+      const next = new Set<DetectableField>();
+      if (f.invoice_number) {
+        setInvoiceNumber(f.invoice_number);
+        next.add("invoice_number");
+      }
+      if (f.invoice_date) {
+        setInvoiceDate(f.invoice_date);
+        next.add("invoice_date");
+      }
+      if (f.total_amount != null) {
+        setTotalAmount(String(f.total_amount));
+        next.add("total_amount");
+      }
+      if (f.currency) {
+        setCurrency(f.currency.toUpperCase());
+        next.add("currency");
+      }
+      setDetected(next);
+      if (next.size === 0) {
+        setExtractionMessage(
+          "Couldn't auto-read this invoice. Please fill in manually."
+        );
+      }
+    },
+    onError: () => {
+      setExtractionMessage(
+        "Couldn't auto-read this invoice. Please fill in manually."
+      );
+    },
+  });
+
+  const accept = (incoming: File) => {
+    setDropError(null);
+    setExtractionMessage(null);
+    if (!isAcceptableType(incoming)) {
+      setDropError("PDF, XLSX or CSV only.");
+      return;
+    }
+    if (incoming.size > MAX_BYTES) {
+      setDropError("File exceeds 10MB limit.");
+      return;
+    }
+    setFile(incoming);
+    setDetected(new Set());
+    if (isPdf(incoming)) {
+      extract.mutate(incoming);
+    }
+  };
+
+  const replace = () => {
+    setFile(null);
+    setDetected(new Set());
+    setExtractionMessage(null);
+    setDropError(null);
+    extract.reset();
+  };
+
+  const onDragEnter = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer?.types?.includes("Files")) setDragActive(true);
+  };
+
+  const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only reset when actually leaving the modal box, not a child element.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragActive(false);
+  };
+
+  const onDrop = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const dropped = e.dataTransfer?.files?.[0];
+    if (dropped) accept(dropped);
+  };
 
   const upload = useMutation({
     mutationFn: () => {
@@ -627,10 +772,6 @@ function UploadModal({
       setError("Drop a PDF, XLSX or CSV file.");
       return;
     }
-    if (file.size > MAX_BYTES) {
-      setError("File exceeds 10MB limit.");
-      return;
-    }
     if (!invoiceNumber.trim()) {
       setError("Invoice number is required.");
       return;
@@ -651,157 +792,291 @@ function UploadModal({
     upload.mutate();
   };
 
+  const extracting = extract.isPending;
+  const formDisabled = extracting;
+  const showForm = file !== null;
+
+  // Drop fields out of "detected" once the user edits them, so the badge
+  // doesn't lie about what the field currently holds.
+  const editField = (key: DetectableField, setter: () => void) => {
+    setter();
+    if (detected.has(key)) {
+      setDetected((cur) => {
+        const next = new Set(cur);
+        next.delete(key);
+        return next;
+      });
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="bg-white border border-card-border rounded-lg p-6 w-full max-w-2xl mx-4 animate-slide-up"
+        className={cn(
+          "relative bg-white border rounded-lg w-full max-w-2xl mx-4 animate-slide-up overflow-hidden transition-colors",
+          dragActive
+            ? "border-mint ring-2 ring-mint/40"
+            : "border-card-border"
+        )}
         onClick={(e) => e.stopPropagation()}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
       >
-        <div className="flex items-center justify-between gap-4">
-          <h3 className="text-base font-semibold text-ink">
-            Upload historical invoice
-          </h3>
+        <div className="px-6 pt-6 pb-2 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-base font-semibold text-ink">
+              Upload historical invoice
+            </h3>
+            <p className="mt-1 text-xs text-ink-muted">
+              For invoices issued outside the platform — for cross-referencing
+              alongside platform-issued invoices for {cp.short_name}.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-ink-muted hover:text-ink p-1 rounded"
+            className="text-ink-muted hover:text-ink p-1 rounded shrink-0"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="mt-1 text-xs text-ink-muted">
-          For invoices issued outside the platform — for cross-referencing
-          alongside platform-issued invoices for {cp.short_name}.
-        </p>
 
-        <form onSubmit={submit} className="mt-5 space-y-5">
-          {file ? (
+        {!showForm ? (
+          <div className="px-6 pb-6">
+            <DropZone
+              accept={HISTORICAL_ACCEPT}
+              onFile={accept}
+              primaryText="Drag PDF here, or click to browse"
+              secondaryText="PDF auto-reads invoice number, date, amount, currency. XLSX/CSV upload manually. Max 10MB."
+              icon={<Upload className="h-8 w-8" strokeWidth={1.5} />}
+              className="py-16"
+            />
+            {dropError && (
+              <p className="mt-3 text-sm text-danger">{dropError}</p>
+            )}
+            <div className="mt-5 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="px-6 pb-6 space-y-5">
             <div className="bg-page border border-card-border rounded-md px-3 py-3 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-ink truncate">
-                  {file.name}
-                </p>
-                <p className="text-xs text-ink-muted">
-                  {(file.size / 1024).toFixed(1)} KB
-                </p>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <FileText
+                  className="h-4 w-4 text-ink-muted shrink-0"
+                  strokeWidth={1.75}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink truncate">
+                    {file!.name}
+                  </p>
+                  <p className="text-xs text-ink-muted">
+                    {(file!.size / 1024).toFixed(1)} KB
+                    {extracting && (
+                      <span className="ml-2 inline-flex items-center gap-1.5 text-ink-muted">
+                        <Spinner />
+                        Reading invoice…
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setFile(null)}
+                onClick={replace}
                 className="text-xs text-ink-muted hover:text-ink underline-offset-4 hover:underline shrink-0"
               >
                 Replace
               </button>
             </div>
-          ) : (
-            <DropZone
-              accept={HISTORICAL_ACCEPT}
-              onFile={setFile}
-              primaryText="Drop PDF, XLSX or CSV here, or click to browse"
-              secondaryText="Max 10MB."
-              icon={<Upload className="h-7 w-7" strokeWidth={1.5} />}
-            />
-          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="hi-num">Invoice number</Label>
-              <Input
-                id="hi-num"
-                value={invoiceNumber}
-                onChange={(e) => setInvoiceNumber(e.target.value)}
-                placeholder="INV-1234"
-                required
-              />
+            {extractionMessage && (
+              <div className="flex items-start gap-2 rounded-md border border-warn/40 bg-warn-bg/40 px-3 py-2 text-xs text-warn-deep">
+                <AlertTriangle
+                  className="h-3.5 w-3.5 shrink-0 mt-0.5"
+                  strokeWidth={2}
+                />
+                <span>{extractionMessage}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <FieldLabel
+                  htmlFor="hi-num"
+                  text="Invoice number"
+                  detected={detected.has("invoice_number")}
+                />
+                <Input
+                  id="hi-num"
+                  value={invoiceNumber}
+                  onChange={(e) =>
+                    editField("invoice_number", () =>
+                      setInvoiceNumber(e.target.value)
+                    )
+                  }
+                  placeholder="INV-1234"
+                  required
+                  disabled={formDisabled}
+                />
+              </div>
+              <div>
+                <FieldLabel
+                  htmlFor="hi-date"
+                  text="Invoice date"
+                  detected={detected.has("invoice_date")}
+                />
+                <Input
+                  id="hi-date"
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) =>
+                    editField("invoice_date", () =>
+                      setInvoiceDate(e.target.value)
+                    )
+                  }
+                  required
+                  disabled={formDisabled}
+                />
+              </div>
+              <div>
+                <FieldLabel
+                  htmlFor="hi-total"
+                  text="Total amount"
+                  detected={detected.has("total_amount")}
+                />
+                <Input
+                  id="hi-total"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={totalAmount}
+                  onChange={(e) =>
+                    editField("total_amount", () =>
+                      setTotalAmount(e.target.value)
+                    )
+                  }
+                  placeholder="0.00"
+                  required
+                  disabled={formDisabled}
+                />
+              </div>
+              <div>
+                <FieldLabel
+                  htmlFor="hi-ccy"
+                  text="Currency"
+                  detected={detected.has("currency")}
+                />
+                <Select
+                  id="hi-ccy"
+                  value={currency}
+                  onChange={(e) =>
+                    editField("currency", () => setCurrency(e.target.value))
+                  }
+                  disabled={formDisabled}
+                >
+                  {["USD", "EUR", "GBP", "SGD", "AED"].map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="hi-type">Type</Label>
+                <Select
+                  id="hi-type"
+                  value={feeType}
+                  onChange={(e) =>
+                    setFeeType(e.target.value as HistoricalInvoiceFeeType)
+                  }
+                  disabled={formDisabled}
+                >
+                  <option value="transaction_fee">Transaction fee</option>
+                  <option value="insurance_admin">Insurance admin</option>
+                  <option value="subscription">Subscription</option>
+                  <option value="other">Other</option>
+                </Select>
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="hi-note">Note (optional)</Label>
+                <Textarea
+                  id="hi-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Context, e.g. covers Jan–Mar pre-platform period"
+                  disabled={formDisabled}
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="hi-date">Invoice date</Label>
-              <Input
-                id="hi-date"
-                type="date"
-                value={invoiceDate}
-                onChange={(e) => setInvoiceDate(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="hi-total">Total amount</Label>
-              <Input
-                id="hi-total"
-                type="number"
-                min={0}
-                step="0.01"
-                inputMode="decimal"
-                value={totalAmount}
-                onChange={(e) => setTotalAmount(e.target.value)}
-                placeholder="0.00"
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="hi-ccy">Currency</Label>
-              <Select
-                id="hi-ccy"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
+
+            {error && <p className="text-sm text-danger">{error}</p>}
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
               >
-                {["USD", "EUR", "GBP", "SGD", "AED"].map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="hi-type">Type</Label>
-              <Select
-                id="hi-type"
-                value={feeType}
-                onChange={(e) =>
-                  setFeeType(e.target.value as HistoricalInvoiceFeeType)
-                }
+                Cancel
+              </button>
+              <Button
+                type="submit"
+                loading={upload.isPending}
+                disabled={upload.isPending || formDisabled}
               >
-                <option value="transaction_fee">Transaction fee</option>
-                <option value="insurance_admin">Insurance admin</option>
-                <option value="subscription">Subscription</option>
-                <option value="other">Other</option>
-              </Select>
+                Upload
+              </Button>
             </div>
-            <div className="md:col-span-2">
-              <Label htmlFor="hi-note">Note (optional)</Label>
-              <Textarea
-                id="hi-note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Context, e.g. covers Jan–Mar pre-platform period"
-              />
+          </form>
+        )}
+
+        {dragActive && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-mint-dim/80 backdrop-blur-[1px]">
+            <div className="flex flex-col items-center gap-2 text-mint-deep">
+              <Upload className="h-10 w-10" strokeWidth={1.5} />
+              <p className="text-sm font-medium">Drop to upload</p>
             </div>
           </div>
-
-          {error && <p className="text-sm text-danger">{error}</p>}
-
-          <div className="flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-sm text-ink-muted hover:text-ink underline-offset-4 hover:underline"
-            >
-              Cancel
-            </button>
-            <Button
-              type="submit"
-              loading={upload.isPending}
-              disabled={upload.isPending}
-            >
-              Upload
-            </Button>
-          </div>
-        </form>
+        )}
       </div>
+    </div>
+  );
+}
+
+function FieldLabel({
+  htmlFor,
+  text,
+  detected,
+}: {
+  htmlFor: string;
+  text: string;
+  detected: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-1">
+      <Label htmlFor={htmlFor} className="!mb-0">
+        {text}
+      </Label>
+      {detected && (
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-mint-deep">
+          <Sparkles className="h-3 w-3" strokeWidth={2} />
+          Detected
+        </span>
+      )}
     </div>
   );
 }

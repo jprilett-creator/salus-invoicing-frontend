@@ -15,6 +15,7 @@ import type {
   HealthResponse,
   HistoricalInvoice,
   HistoricalInvoiceCreate,
+  HistoricalInvoiceExtractResponse,
   InvoiceDraft,
   KycAttestation,
   KycChecks,
@@ -453,6 +454,15 @@ export const api = {
 
   listHistoricalInvoices: (cpId: number) =>
     request<HistoricalInvoice[]>(`/api/counterparties/${cpId}/historical-invoices`),
+
+  extractHistoricalInvoice: (pdf: File) => {
+    const fd = new FormData();
+    fd.append("pdf", pdf);
+    return request<HistoricalInvoiceExtractResponse>("/api/invoices/extract", {
+      method: "POST",
+      formData: fd,
+    });
+  },
 
   uploadHistoricalInvoice: (cpId: number, input: HistoricalInvoiceCreate) => {
     const fd = new FormData();

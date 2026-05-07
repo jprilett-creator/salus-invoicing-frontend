@@ -482,6 +482,22 @@ export interface HistoricalInvoiceCreate {
   file: File;
 }
 
+export interface HistoricalInvoiceExtraction {
+  invoice_number: string | null;
+  invoice_date: string | null;
+  total_amount: number | null;
+  currency: string | null;
+  supplier_name: string | null;
+  confidence: "high" | "medium" | "low" | null;
+}
+
+export interface HistoricalInvoiceExtractResponse {
+  extracted_fields: HistoricalInvoiceExtraction;
+  extraction_available: boolean;
+  extracted: boolean;
+  error?: string;
+}
+
 // ---------------- Off-blotter / insurance certificates ----------------
 
 export interface InsuranceCertExtraction {
