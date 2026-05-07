@@ -3,6 +3,7 @@ import {
   BarChart,
   CartesianGrid,
   ComposedChart,
+  LabelList,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -254,23 +255,8 @@ export function PlatformVolumeChart({
           <YAxis
             yAxisId="parcels"
             orientation="right"
-            axisLine={false}
-            tickLine={false}
-            tick={{ fontSize: 10, fill: "#666666" }}
-            allowDecimals={false}
             domain={[0, 12]}
-            width={32}
-            label={{
-              value: "Parcels",
-              angle: 90,
-              position: "insideRight",
-              offset: 8,
-              style: {
-                fontSize: 10,
-                fill: "#666666",
-                textAnchor: "middle",
-              },
-            }}
+            hide
           />
           <Tooltip
             cursor={{ fill: "#F4F4F4" }}
@@ -286,13 +272,24 @@ export function PlatformVolumeChart({
             yAxisId="parcels"
             type="monotone"
             dataKey="parcels"
-            stroke={AMBER}
-            strokeWidth={2}
-            strokeOpacity={0.85}
-            dot={{ r: 3, fill: AMBER, stroke: AMBER, strokeWidth: 0 }}
+            stroke="transparent"
+            strokeWidth={0}
+            dot={{ r: 4, fill: AMBER, stroke: AMBER, strokeWidth: 0 }}
             activeDot={{ r: 5, fill: AMBER, stroke: "#FFFFFF", strokeWidth: 1.5 }}
             isAnimationActive={false}
-          />
+          >
+            <LabelList
+              dataKey="parcels"
+              position="top"
+              offset={8}
+              fill={AMBER}
+              fontSize={11}
+              formatter={(value: unknown) => {
+                const n = Number(value);
+                return Number.isFinite(n) && n > 0 ? String(n) : "";
+              }}
+            />
+          </Line>
         </ComposedChart>
       </ResponsiveContainer>
     </div>
