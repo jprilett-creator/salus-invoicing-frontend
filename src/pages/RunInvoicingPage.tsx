@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
@@ -24,6 +29,10 @@ import { Checkbox } from "../components/ui/Checkbox";
 import { Spinner } from "../components/ui/Spinner";
 import { DropZone } from "../components/DropZone";
 import { InvoiceDraftCard } from "../components/InvoiceDraftCard";
+import {
+  OffBlotterCertCapture,
+  type CertCaptureCounterparty,
+} from "../components/OffBlotterCertCapture";
 import { useToast } from "../components/ui/Toaster";
 import { PageHeader } from "../components/PageHeader";
 import { XeroStatusIndicator } from "../components/XeroStatusIndicator";
@@ -73,6 +82,7 @@ function prefillRowToBatch(r: OffBlotterPrefillRow): Batch {
 
 export function RunInvoicingPage() {
   const { toast } = useToast();
+  const qc = useQueryClient();
 
   const [stage, setStage] = useState<Stage>("setup");
 
@@ -123,6 +133,20 @@ export function RunInvoicingPage() {
   });
 
   const supplierIds = suppliersQuery.data?.map((c) => c.id) ?? [];
+  const supplierOptions: CertCaptureCounterparty[] = useMemo(
+    () =>
+      (suppliersQuery.data ?? []).map((c) => ({
+        id: c.id,
+        short_name: c.short_name,
+        name: c.name,
+      })),
+    [suppliersQuery.data]
+  );
+
+  const onCertSaved = () => {
+    toast("Insurance certificate registered.");
+    qc.invalidateQueries({ queryKey: ["off-blotter-prefill"] });
+  };
 
   const prefillResults = useQueries({
     queries: supplierIds.map((cpId) => ({
@@ -134,9 +158,20 @@ export function RunInvoicingPage() {
   });
 
   const prefillLoading = prefillResults.some((q) => q.isLoading);
-  const prefillData: OffBlotterPrefillResponse[] = prefillResults
-    .map((q) => q.data)
-    .filter((d): d is OffBlotterPrefillResponse => Boolean(d));
+  // Fingerprint of the underlying query data — stable across renders unless
+  // a query actually refetches. Used to memoize derived arrays so dependent
+  // hooks don't re-run on every render.
+  const prefillFingerprint = prefillResults
+    .map((q) => q.dataUpdatedAt ?? 0)
+    .join(",");
+  const prefillData: OffBlotterPrefillResponse[] = useMemo(
+    () =>
+      prefillResults
+        .map((q) => q.data)
+        .filter((d): d is OffBlotterPrefillResponse => Boolean(d)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [prefillFingerprint]
+  );
   const helperText = prefillData[0]?.helper_text ?? FALLBACK_HELPER;
   const prefillRows: OffBlotterPrefillRow[] = useMemo(
     () => prefillData.flatMap((r) => r.declarations),
@@ -153,11 +188,16 @@ export function RunInvoicingPage() {
   useEffect(() => {
     const known = new Set(prefillRows.map((r) => r.salus_id));
     setPrefillEdits((cur) => {
+      const keys = Object.keys(cur);
+      if (keys.every((k) => known.has(k))) return cur;
       const next: Record<string, Batch> = {};
       for (const [k, v] of Object.entries(cur)) if (known.has(k)) next[k] = v;
       return next;
     });
     setPrefillRemoved((cur) => {
+      let allKnown = true;
+      for (const k of cur) if (!known.has(k)) { allKnown = false; break; }
+      if (allKnown) return cur;
       const next = new Set<string>();
       for (const k of cur) if (known.has(k)) next.add(k);
       return next;
@@ -382,6 +422,8 @@ export function RunInvoicingPage() {
               return next;
             })
           }
+          supplierOptions={supplierOptions}
+          onCertSaved={onCertSaved}
         />
       )}
 
@@ -450,6 +492,8 @@ function SetupView(props: {
   setEditingPrefillId: (id: string | null) => void;
   savePrefillEdit: (salus_id: string, edited: Batch) => void;
   removePrefill: (salus_id: string) => void;
+  supplierOptions: CertCaptureCounterparty[];
+  onCertSaved: () => void;
 }) {
   const {
     xlsxFile,
@@ -478,6 +522,8 @@ function SetupView(props: {
     setEditingPrefillId,
     savePrefillEdit,
     removePrefill,
+    supplierOptions,
+    onCertSaved,
   } = props;
 
   const obStepCount = prefillRows.length + offBlotter.length;
@@ -571,6 +617,15 @@ function SetupView(props: {
         </button>
         {obOpen && (
           <div className="px-6 pb-6 -mt-2 space-y-5">
+            <div className="rounded-md border border-dashed border-card-border bg-page p-4">
+              <OffBlotterCertCapture
+                supplierOptions={supplierOptions}
+                onSaved={onCertSaved}
+                primaryText="Drop a cert PDF to register and bill it for this period"
+                secondaryText="Drop a Gallagher cover note or similar — Salus will extract the parties, value and cargo, register it on the supplier's Insurance tab, and pull it into this run."
+              />
+            </div>
+
             <p className="text-xs text-ink-muted">{helperText}</p>
 
             {prefillLoading && prefillRows.length === 0 && (
