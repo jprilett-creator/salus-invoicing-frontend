@@ -33,10 +33,9 @@ interface StackedBarsProps<T extends { month: string }> {
   height?: number;
 }
 
-function monthLabel(month: string, i: number): string {
+function monthLabel(month: string): string {
   const short = formatMonthShort(month);
-  const showYear = i === 0 || month.endsWith("-01");
-  return showYear ? `${short} ’${month.slice(2, 4)}` : short;
+  return `${short} ’${month.slice(2, 4)}`;
 }
 
 function StackedBars<T extends { month: string }>({
@@ -44,9 +43,9 @@ function StackedBars<T extends { month: string }>({
   series,
   height = 240,
 }: StackedBarsProps<T>) {
-  const chartData = data.map((d, i) => ({
+  const chartData = data.map((d) => ({
     ...d,
-    label: monthLabel(d.month, i),
+    label: monthLabel(d.month),
   }));
   const labelByKey = Object.fromEntries(series.map((s) => [s.key, s.label]));
 
@@ -202,9 +201,9 @@ export function PlatformVolumeChart({
   data: MonthlyPlatformVolumePoint[];
   height?: number;
 }) {
-  const chartData = data.map((d, i) => ({
+  const chartData = data.map((d) => ({
     ...d,
-    label: monthLabel(d.month, i),
+    label: monthLabel(d.month),
   }));
 
   return (
