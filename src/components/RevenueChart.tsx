@@ -211,7 +211,7 @@ export function PlatformVolumeChart({
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart
           data={chartData}
-          margin={{ top: 16, right: 16, left: 0, bottom: 4 }}
+          margin={{ top: 16, right: 16, left: 20, bottom: 4 }}
         >
           <CartesianGrid
             stroke="#EFEFEF"
@@ -238,12 +238,12 @@ export function PlatformVolumeChart({
               if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
               return `$${n}`;
             }}
-            width={56}
+            width={84}
             label={{
               value: "GMV (USD)",
               angle: -90,
               position: "insideLeft",
-              offset: 16,
+              dx: -4,
               style: {
                 fontSize: 10,
                 fill: "#666666",
